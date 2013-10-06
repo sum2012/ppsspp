@@ -1,0 +1,754 @@
+
+[/]
+  <REGISTRY>
+  <SYSPROFILE>
+  <CONFIG>
+  <DATA>
+
+[/REGISTRY]
+  category_version = 102
+
+[/SYSPROFILE]
+  sound_reduction = 0
+  <RESOLUTION>
+
+[/SYSPROFILE/RESOLUTION]
+  horizontal = 8210
+  vertical = 8210
+
+[/CONFIG]
+  <VIDEO>
+  <PHOTO>
+  <MUSIC>
+  <BROWSER>
+  <BROWSER2>
+  <LFTV>
+  <RSS>
+  <ALARM>
+  <PREMO>
+  <CAMERA>
+  <DISPLAY>
+  <NP>
+  <ONESEG>
+  <SYSTEM>
+  <DATE>
+  <NETWORK>
+  <OSK>
+  <INFOBOARD>
+  <BT>
+  <GAME>
+
+[/CONFIG/VIDEO]
+  menu_language = "ja"
+  sound_language = "00"
+  subtitle_language = "ja"
+  appended_volume = 0
+  lr_button_enable = 1
+  list_play_mode = 1
+  title_display_mode = 0
+  output_ext_menu = 0
+  output_ext_func = 0
+
+[/CONFIG/PHOTO]
+  slideshow_speed = 1
+
+[/CONFIG/MUSIC]
+  wma_play = 0
+  visualizer_mode = 0
+  track_info_mode = 1
+
+[/CONFIG/BROWSER]
+  home_uri = ""
+  cookie_mode = 1
+  proxy_mode = 2
+  proxy_address = ""
+  proxy_port = 0
+  picture = 1
+  animation = 1
+  javascript = 1
+  cache_size = 512
+  char_size = 1
+  disp_mode = 0
+  connect_mode = 0
+  flash_activated = 1
+  flash_play = 1
+  proxy_protect = 0
+  proxy_autoauth = 0
+  proxy_user = ""
+  proxy_password = ""
+  webpage_quality = 0
+
+[/CONFIG/BROWSER2]
+  tm_service = 0
+  tm_ec_ttl = 0
+  tm_ec_ttl_update_time = ""
+  tm_service_sub_status = 0
+
+[/CONFIG/LFTV]
+  easy_reg_done = 0
+  netav_domain_name = ""
+  netav_ip_address = "172.29.71.1"
+  netav_port_no_home = 5021
+  netav_port_no_away = 5021
+  netav_nonce = ""
+  base_station_version = "0.000"
+  base_station_region = 0
+  tuner_type = 0
+  input_line = 0
+  tv_channel = 0
+  bitrate_home = 0
+  bitrate_away = 0
+  channel_setting_jp = ""
+  channel_setting_us = ""
+  channel_setting_us_catv = ""
+  overwrite_netav_setting = 1
+  screen_mode = 0
+  remocon_setting_region = 0
+  remocon_setting = ""
+  remocon_setting_revision = "0000.00"
+  external_tuner_channel = 0
+  ssid = ""
+  audio_gain = 0
+  broadcast_standard_video1 = 0
+  broadcast_standard_video2 = 0
+  version = 0
+  tv_channel_range = 0
+  tuner_type_no = 0
+  input_line_no = 0
+  audio_channel = 0
+  shared_remocon_setting = ""
+
+[/CONFIG/RSS]
+  download_items = 5
+
+[/CONFIG/ALARM]
+  alarm_0_time = -1
+  alarm_1_time = -1
+  alarm_2_time = -1
+  alarm_3_time = -1
+  alarm_4_time = -1
+  alarm_5_time = -1
+  alarm_6_time = -1
+  alarm_7_time = -1
+  alarm_8_time = -1
+  alarm_9_time = -1
+  alarm_0_property = 0
+  alarm_1_property = 0
+  alarm_2_property = 0
+  alarm_3_property = 0
+  alarm_4_property = 0
+  alarm_5_property = 0
+  alarm_6_property = 0
+  alarm_7_property = 0
+  alarm_8_property = 0
+  alarm_9_property = 0
+
+[/CONFIG/PREMO]
+  guide_page = 1
+  response = 0
+  ps3_name = ""
+  ps3_mac = ""
+  ps3_keytype = 0
+  ps3_key = ""
+  custom_video_bitrate1 = 0
+  custom_video_bitrate2 = 0
+  custom_video_buffer1 = 0
+  custom_video_buffer2 = 0
+  setting_internet = 0
+  button_assign = 0
+  flags = 0
+  account_id = ""
+  login_id = ""
+  password = ""
+
+[/CONFIG/CAMERA]
+  still_size = 1
+  movie_size = 1
+  still_quality = 0
+  movie_quality = 0
+  movie_fps = 1
+  white_balance = 0
+  exposure_bias = 0
+  shutter_sound_mode = 0
+  file_folder = 101
+  file_number = 1
+  msid = ""
+  still_effect = 0
+  medium_type = 0
+  file_number_eflash = 1
+  folder_number_eflash = 101
+
+[/CONFIG/DISPLAY]
+  aspect_ratio = 0
+  scan_mode = 0
+  screensaver_start_time = 600
+  color_space_mode = 0
+  pi_blending_mode = 1
+
+[/CONFIG/NP]
+  env = "np"
+  account_id = ""
+  login_id = ""
+  password = ""
+  auto_sign_in_enable = 0
+  nav_only = 0
+  np_ad_clock_diff = 0
+  view_mode = 0
+  np_geo_filtering = 0
+  guest_country = ""
+  guest_lang = ""
+  guest_yob = 0
+  guest_mob = 0
+  guest_dob = 0
+  check_drm = 0
+
+[/CONFIG/ONESEG]
+  schedule_data_key = ""
+
+[/CONFIG/SYSTEM]
+  owner_name = "P631"
+  backlight_brightness = 2
+  umd_autoboot = 0
+  usb_charge = 1
+  umd_cache = 0
+  usb_auto_connect = 0
+  slide_action = 0
+  first_boot_tick = "¶w?§á"
+  owner_mob = 0
+  owner_dob = 0
+  slide_welcome = 0
+  exh_mode = 0
+  <XMB>
+  <SOUND>
+  <POWER_SAVING>
+  <LOCK>
+  <CHARACTER_SET>
+
+[/CONFIG/SYSTEM/XMB]
+  theme_type = 0
+  language = 11
+  button_assign = 0
+  <THEME>
+
+[/CONFIG/SYSTEM/XMB/THEME]
+  color_mode = 1
+  wallpaper_mode = 0
+  system_color = 25
+  custom_theme_mode = 0
+
+[/CONFIG/SYSTEM/SOUND]
+  main_volume = 20
+  mute = 0
+  avls = 0
+  equalizer_mode = 0
+  operation_sound_mode = 1
+  dynamic_normalizer = 0
+
+[/CONFIG/SYSTEM/POWER_SAVING]
+  suspend_interval = 600
+  backlight_off_interval = 300
+  wlan_mode = 0
+  active_backlight_mode = 0
+
+[/CONFIG/SYSTEM/LOCK]
+  password = "0000FIG/SYSTEM/XMB/THEME"
+  parental_level = 9
+  browser_start = 0
+
+[/CONFIG/SYSTEM/CHARACTER_SET]
+  oem = 14
+  ansi = 14
+
+[/CONFIG/DATE]
+  time_format = 0
+  date_format = 0
+  summer_time = 0
+  time_zone_offset = 480
+  time_zone_area = "hong_kong"
+
+[/CONFIG/NETWORK]
+  <ADHOC>
+  <INFRASTRUCTURE>
+  <GO_MESSENGER>
+
+[/CONFIG/NETWORK/ADHOC]
+  channel = 0
+  ssid_prefix = "PSP"
+
+[/CONFIG/NETWORK/INFRASTRUCTURE]
+  latest_id = 0
+  eap_md5 = 0
+  auto_setting = 1
+  wifisvc_setting = 2
+  btdun_warnings_check = 0
+  <0>
+
+[/CONFIG/NETWORK/INFRASTRUCTURE/0]
+  <SUB1>
+  version = 5
+  device = 1
+  cnf_name = ""
+  ssid = ""
+  auth_proto = 0
+  wep_key = ""
+  how_to_set_ip = 0
+  ip_address = ""
+  netmask = ""
+  default_route = ""
+  dns_flag = 0
+  primary_dns = ""
+  secondary_dns = ""
+  auth_name = ""
+  auth_key = ""
+  http_proxy_flag = 0
+  http_proxy_server = ""
+  http_proxy_port = 8080
+  auth_8021x_type = 0
+  auth_8021x_auth_name = ""
+  auth_8021x_auth_key = ""
+  wpa_key_type = 0
+  wpa_key = ""
+  browser_flag = 0
+  wifisvc_config = 0
+
+[/CONFIG/NETWORK/INFRASTRUCTURE/0/SUB1]
+  wifisvc_auth_name = ""
+  wifisvc_auth_key = ""
+  wifisvc_option = 0
+  last_leased_dhcp_addr = ""
+  bt_id = 0
+  at_command = ""
+  phone_number = ""
+
+[/CONFIG/NETWORK/GO_MESSENGER]
+  auth_name = ""
+  auth_key = ""
+
+[/CONFIG/OSK]
+  version_id = 0
+  disp_locale = 0
+  writing_locale = 0
+  input_char_mask = 0
+  keytop_index = 0
+
+[/CONFIG/INFOBOARD]
+  locale_lang = ""
+  qa_server = 0
+
+[/CONFIG/BT]
+  connect_mode = 0
+  <DEVICE0>
+  <DEVICE1>
+  <DEVICE2>
+  <DEVICE3>
+  <DEVICE4>
+  <DEVICE5>
+  <DEVICE6>
+  <DEVICE7>
+
+[/CONFIG/BT/DEVICE0]
+  audio_type = 1
+  device_type = 0
+  device_name = ""
+
+[/CONFIG/BT/DEVICE1]
+  audio_type = 1
+  device_type = 0
+  device_name = ""
+
+[/CONFIG/BT/DEVICE2]
+  audio_type = 1
+  device_type = 0
+  device_name = ""
+
+[/CONFIG/BT/DEVICE3]
+  audio_type = 1
+  device_type = 0
+  device_name = ""
+
+[/CONFIG/BT/DEVICE4]
+  audio_type = 1
+  device_type = 0
+  device_name = ""
+
+[/CONFIG/BT/DEVICE5]
+  audio_type = 1
+  device_type = 0
+  device_name = ""
+
+[/CONFIG/BT/DEVICE6]
+  audio_type = 1
+  device_type = 0
+  device_name = ""
+
+[/CONFIG/BT/DEVICE7]
+  audio_type = 1
+  device_type = 0
+  device_name = ""
+
+[/CONFIG/GAME]
+  hibernation_ow_guide = 1
+  hibernation_op_guide = 1
+  subs_expiration_guide = 1
+
+[/DATA]
+  <FONT>
+  <COUNT>
+
+[/DATA/FONT]
+  path_name = "flash0:/font"
+  num_fonts = 18
+  <PROPERTY>
+
+[/DATA/FONT/PROPERTY]
+  <INFO0>
+  <INFO1>
+  <INFO2>
+  <INFO3>
+  <INFO4>
+  <INFO5>
+  <INFO6>
+  <INFO7>
+  <INFO8>
+  <INFO9>
+  <INFO10>
+  <INFO11>
+  <INFO12>
+  <INFO13>
+  <INFO14>
+  <INFO15>
+  <INFO16>
+  <INFO17>
+
+[/DATA/FONT/PROPERTY/INFO0]
+  h_size = 648
+  v_size = 648
+  h_resolution = 8192
+  v_resolution = 8192
+  extra_attributes = 0
+  weight = 0
+  family_code = 1
+  style = 103
+  sub_style = 0
+  language_code = 1
+  region_code = 0
+  country_code = 1
+  font_name = "FTT-NewRodin Pro DB"
+  file_name = "jpn0.pgf"
+  expire_date = 0
+  shadow_option = 0
+
+[/DATA/FONT/PROPERTY/INFO1]
+  h_size = 648
+  v_size = 648
+  h_resolution = 8192
+  v_resolution = 8192
+  extra_attributes = 0
+  weight = 0
+  family_code = 1
+  style = 1
+  sub_style = 0
+  language_code = 2
+  region_code = 0
+  country_code = 1
+  font_name = "FTT-NewRodin Pro Latin"
+  file_name = "ltn0.pgf"
+  expire_date = 0
+  shadow_option = 0
+
+[/DATA/FONT/PROPERTY/INFO2]
+  h_size = 648
+  v_size = 648
+  h_resolution = 8192
+  v_resolution = 8192
+  extra_attributes = 0
+  weight = 0
+  family_code = 2
+  style = 1
+  sub_style = 0
+  language_code = 2
+  region_code = 0
+  country_code = 1
+  font_name = "FTT-Matisse Pro Latin"
+  file_name = "ltn1.pgf"
+  expire_date = 0
+  shadow_option = 0
+
+[/DATA/FONT/PROPERTY/INFO3]
+  h_size = 648
+  v_size = 648
+  h_resolution = 8192
+  v_resolution = 8192
+  extra_attributes = 0
+  weight = 0
+  family_code = 1
+  style = 2
+  sub_style = 0
+  language_code = 2
+  region_code = 0
+  country_code = 1
+  font_name = "FTT-NewRodin Pro Latin"
+  file_name = "ltn2.pgf"
+  expire_date = 0
+  shadow_option = 0
+
+[/DATA/FONT/PROPERTY/INFO4]
+  h_size = 648
+  v_size = 648
+  h_resolution = 8192
+  v_resolution = 8192
+  extra_attributes = 0
+  weight = 0
+  family_code = 2
+  style = 2
+  sub_style = 0
+  language_code = 2
+  region_code = 0
+  country_code = 1
+  font_name = "FTT-Matisse Pro Latin"
+  file_name = "ltn3.pgf"
+  expire_date = 0
+  shadow_option = 0
+
+[/DATA/FONT/PROPERTY/INFO5]
+  h_size = 648
+  v_size = 648
+  h_resolution = 8192
+  v_resolution = 8192
+  extra_attributes = 0
+  weight = 0
+  family_code = 1
+  style = 5
+  sub_style = 0
+  language_code = 2
+  region_code = 0
+  country_code = 1
+  font_name = "FTT-NewRodin Pro Latin"
+  file_name = "ltn4.pgf"
+  expire_date = 0
+  shadow_option = 0
+
+[/DATA/FONT/PROPERTY/INFO6]
+  h_size = 648
+  v_size = 648
+  h_resolution = 8192
+  v_resolution = 8192
+  extra_attributes = 0
+  weight = 0
+  family_code = 2
+  style = 5
+  sub_style = 0
+  language_code = 2
+  region_code = 0
+  country_code = 1
+  font_name = "FTT-Matisse Pro Latin"
+  file_name = "ltn5.pgf"
+  expire_date = 0
+  shadow_option = 0
+
+[/DATA/FONT/PROPERTY/INFO7]
+  h_size = 648
+  v_size = 648
+  h_resolution = 8192
+  v_resolution = 8192
+  extra_attributes = 0
+  weight = 0
+  family_code = 1
+  style = 6
+  sub_style = 0
+  language_code = 2
+  region_code = 0
+  country_code = 1
+  font_name = "FTT-NewRodin Pro Latin"
+  file_name = "ltn6.pgf"
+  expire_date = 0
+  shadow_option = 0
+
+[/DATA/FONT/PROPERTY/INFO8]
+  h_size = 648
+  v_size = 648
+  h_resolution = 8192
+  v_resolution = 8192
+  extra_attributes = 0
+  weight = 0
+  family_code = 2
+  style = 6
+  sub_style = 0
+  language_code = 2
+  region_code = 0
+  country_code = 1
+  font_name = "FTT-Matisse Pro Latin"
+  file_name = "ltn7.pgf"
+  expire_date = 0
+  shadow_option = 0
+
+[/DATA/FONT/PROPERTY/INFO9]
+  h_size = 448
+  v_size = 448
+  h_resolution = 8192
+  v_resolution = 8192
+  extra_attributes = 0
+  weight = 0
+  family_code = 1
+  style = 1
+  sub_style = 0
+  language_code = 2
+  region_code = 0
+  country_code = 1
+  font_name = "FTT-NewRodin Pro Latin"
+  file_name = "ltn8.pgf"
+  expire_date = 0
+  shadow_option = 0
+
+[/DATA/FONT/PROPERTY/INFO10]
+  h_size = 448
+  v_size = 448
+  h_resolution = 8192
+  v_resolution = 8192
+  extra_attributes = 0
+  weight = 0
+  family_code = 2
+  style = 1
+  sub_style = 0
+  language_code = 2
+  region_code = 0
+  country_code = 1
+  font_name = "FTT-Matisse Pro Latin"
+  file_name = "ltn9.pgf"
+  expire_date = 0
+  shadow_option = 0
+
+[/DATA/FONT/PROPERTY/INFO11]
+  h_size = 448
+  v_size = 448
+  h_resolution = 8192
+  v_resolution = 8192
+  extra_attributes = 0
+  weight = 0
+  family_code = 1
+  style = 2
+  sub_style = 0
+  language_code = 2
+  region_code = 0
+  country_code = 1
+  font_name = "FTT-NewRodin Pro Latin"
+  file_name = "ltn10.pgf"
+  expire_date = 0
+  shadow_option = 0
+
+[/DATA/FONT/PROPERTY/INFO12]
+  h_size = 448
+  v_size = 448
+  h_resolution = 8192
+  v_resolution = 8192
+  extra_attributes = 0
+  weight = 0
+  family_code = 2
+  style = 2
+  sub_style = 0
+  language_code = 2
+  region_code = 0
+  country_code = 1
+  font_name = "FTT-Matisse Pro Latin"
+  file_name = "ltn11.pgf"
+  expire_date = 0
+  shadow_option = 0
+
+[/DATA/FONT/PROPERTY/INFO13]
+  h_size = 448
+  v_size = 448
+  h_resolution = 8192
+  v_resolution = 8192
+  extra_attributes = 0
+  weight = 0
+  family_code = 1
+  style = 5
+  sub_style = 0
+  language_code = 2
+  region_code = 0
+  country_code = 1
+  font_name = "FTT-NewRodin Pro Latin"
+  file_name = "ltn12.pgf"
+  expire_date = 0
+  shadow_option = 0
+
+[/DATA/FONT/PROPERTY/INFO14]
+  h_size = 448
+  v_size = 448
+  h_resolution = 8192
+  v_resolution = 8192
+  extra_attributes = 0
+  weight = 0
+  family_code = 2
+  style = 5
+  sub_style = 0
+  language_code = 2
+  region_code = 0
+  country_code = 1
+  font_name = "FTT-Matisse Pro Latin"
+  file_name = "ltn13.pgf"
+  expire_date = 0
+  shadow_option = 0
+
+[/DATA/FONT/PROPERTY/INFO15]
+  h_size = 448
+  v_size = 448
+  h_resolution = 8192
+  v_resolution = 8192
+  extra_attributes = 0
+  weight = 0
+  family_code = 1
+  style = 6
+  sub_style = 0
+  language_code = 2
+  region_code = 0
+  country_code = 1
+  font_name = "FTT-NewRodin Pro Latin"
+  file_name = "ltn14.pgf"
+  expire_date = 0
+  shadow_option = 0
+
+[/DATA/FONT/PROPERTY/INFO16]
+  h_size = 448
+  v_size = 448
+  h_resolution = 8192
+  v_resolution = 8192
+  extra_attributes = 0
+  weight = 0
+  family_code = 2
+  style = 6
+  sub_style = 0
+  language_code = 2
+  region_code = 0
+  country_code = 1
+  font_name = "FTT-Matisse Pro Latin"
+  file_name = "ltn15.pgf"
+  expire_date = 0
+  shadow_option = 0
+
+[/DATA/FONT/PROPERTY/INFO17]
+  h_size = 648
+  v_size = 648
+  h_resolution = 8192
+  v_resolution = 8192
+  extra_attributes = 0
+  weight = 0
+  family_code = 1
+  style = 1
+  sub_style = 0
+  language_code = 3
+  region_code = 0
+  country_code = 3
+  font_name = "AsiaNHH(512Johab)"
+  file_name = "kr0.pgf"
+  expire_date = 0
+  shadow_option = 0
+
+[/DATA/COUNT]
+  boot_count = 0
+  game_exec_count = 0
+  slide_count = 0
+  usb_connect_count = 0
+  wifi_connect_count = 0
+  psn_access_count = 0
+

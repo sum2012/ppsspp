@@ -23,10 +23,10 @@ typedef struct {
 	char value[32];
 }SCEREG_OBJ;
 
-std::map<int, SCEREG_OBJ> scereg_objects;
-IniFile iniFile;
+static std::map<int, SCEREG_OBJ> scereg_objects;
+static IniFile iniFile;
 
-static const char registry_name[] = "registry.txt";
+static std::string registry_name;
 static int scereg_id;
 static int scereg_load;
 static int scereg_open;
@@ -35,6 +35,9 @@ static int scereg_open;
 
 void __RegInit()
 {
+	std::string tmp = "flash0:/registry.txt";
+	pspFileSystem.GetHostPath(tmp, registry_name);
+
 	scereg_id = 1;
 	scereg_load = 0;
 	scereg_open = 0;
@@ -57,7 +60,7 @@ void __RegDoState(PointerWrap &p)
 	p.DoMarker("sceReg");
 
 	if(scereg_open){
-		iniFile.Load(registry_name);
+		iniFile.Load(registry_name.c_str());
 		scereg_load = 1;
 	}
 }
@@ -187,8 +190,8 @@ int sceRegOpenRegistry(u32 reg_ptr, int mode, u32 h_ptr)
 	INFO_LOG(HLE, "sceRegOpenRegistry()");
 
 	if(scereg_load==0){
-		if (!iniFile.Load(registry_name)) {
-			ERROR_LOG(HLE, "sceRegOpenRegistry: Failed to read %s", registry_name);
+		if (!iniFile.Load(registry_name.c_str())) {
+			ERROR_LOG(HLE, "sceRegOpenRegistry: Failed to read %s", registry_name.c_str());
 			return -1;
 		}
 		scereg_load = 1;
@@ -366,3 +369,4 @@ const HLEFunction sceReg[] = {
 void Register_sceReg() {
 	RegisterModule("sceReg", ARRAY_SIZE(sceReg), sceReg);
 }
+
