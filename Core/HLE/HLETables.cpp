@@ -334,5 +334,6 @@ void RegisterAllModules() {
 	Register_sceLibFttt();
 	Register_sceSha256();
 	Register_sceReg();
+	Register_KUBridge();
 }
 
