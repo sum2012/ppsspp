@@ -623,6 +623,8 @@ KernelObject *KernelObjectPool::CreateByIDType(int type)
 		return __KernelFileNodeObject();
 	case PPSSPP_KERNEL_TMID_DirList:
 		return __KernelDirListingObject();
+	case SCE_KERNEL_TMID_ThreadEventHandler:
+		return __KernelThreadEventHandlerObject();
 
 	default:
 		ERROR_LOG(COMMON, "Unable to load state: could not find object type %d.", type);
@@ -813,9 +815,9 @@ const HLEFunction ThreadManForUser[] =
 	{0x278C0DF5,WrapI_IU<sceKernelWaitThreadEnd>,"sceKernelWaitThreadEnd"},
 	{0xd59ead2f,WrapI_I<sceKernelWakeupThread>,"sceKernelWakeupThread"}, //AI Go, audio?
 
-	{0x0C106E53,0,"sceKernelRegisterThreadEventHandler"},
-	{0x72F3C145,0,"sceKernelReleaseThreadEventHandler"},
-	{0x369EEB6B,0,"sceKernelReferThreadEventHandlerStatus"},
+	{0x0C106E53,WrapI_CIUUU<sceKernelRegisterThreadEventHandler>,"sceKernelRegisterThreadEventHandler"},
+	{0x72F3C145,WrapI_I<sceKernelReleaseThreadEventHandler>,   "sceKernelReleaseThreadEventHandler"},
+	{0x369EEB6B,WrapI_IU<sceKernelReferThreadEventHandlerStatus>,"sceKernelReferThreadEventHandlerStatus"},
 
 	{0x349d6d6c,sceKernelCheckCallback,                        "sceKernelCheckCallback"},
 	{0xE81CAF8F,WrapI_CUU<sceKernelCreateCallback>,            "sceKernelCreateCallback"},
