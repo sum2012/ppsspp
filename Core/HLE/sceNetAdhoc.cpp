@@ -47,7 +47,7 @@ SceUID threadAdhocID;
 std::vector<std::pair<u32, u32>> adhocctlEvents;
 std::vector<u64> matchingEvents;
 u32 dummyThreadHackAddr;
-u32_le dummyThreadCode[5];
+u32_le dummyThreadCode[3];
 
 std::map<int, AdhocctlHandler> adhocctlHandlers;
 
@@ -124,10 +124,8 @@ void __NetAdhocInit() {
 	adhocctlHandlers.clear();
 	__AdhocServerInit();
 	dummyThreadCode[0] = MIPS_MAKE_SYSCALL("sceNetAdhoc", "__NetTriggerCallbacks");
-	dummyThreadCode[1] = MIPS_MAKE_ADDIU(MIPS_REG_A0, MIPS_REG_ZERO, 1000);
-	dummyThreadCode[2] = MIPS_MAKE_SYSCALL("ThreadManForUser", "sceKernelSleepThreadCB");
-	dummyThreadCode[3] = MIPS_MAKE_B(-4);
-	dummyThreadCode[4] = MIPS_MAKE_NOP();
+	dummyThreadCode[1] = MIPS_MAKE_B(-2);
+	dummyThreadCode[2] = MIPS_MAKE_NOP();
 	u32 blockSize = sizeof(dummyThreadCode);
 	dummyThreadHackAddr = kernelMemory.Alloc(blockSize, false, "dummythreadhack");
 	Memory::Memcpy(dummyThreadHackAddr, dummyThreadCode, sizeof(dummyThreadCode)); // This area will be cleared again after loading an old savestate :(
