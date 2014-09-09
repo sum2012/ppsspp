@@ -801,8 +801,6 @@ extern int one;
 extern bool friendFinderRunning;
 extern SceNetAdhocctlPeerInfo * friends;
 extern SceNetAdhocctlScanInfo * networks; 
-extern int eventAdhocctlHandlerUpdate;
-extern int eventMatchingHandlerUpdate;
 extern int threadStatus;
 // End of Aux vars
 

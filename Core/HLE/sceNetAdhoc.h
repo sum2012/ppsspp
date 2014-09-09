@@ -24,6 +24,8 @@ void Register_sceNetAdhoc();
 void __NetAdhocInit();
 void __NetAdhocShutdown();
 void __NetAdhocDoState(PointerWrap &p);
+void __UpdateAdhocctlHandlers(int flags, int error);
+void __UpdateMatchingHandler(u64 params);
 
 // I have to call this from netdialog
 int sceNetAdhocctlCreate(const char * groupName);
