@@ -1238,6 +1238,8 @@ add_library(${CoreLibName} ${CoreLinkType}
 	Core/HLE/scePower.h
 	Core/HLE/scePsmf.cpp
 	Core/HLE/scePsmf.h
+	Core/HLE/sceReg.cpp
+	Core/HLE/sceReg.h
 	Core/HLE/sceRtc.cpp
 	Core/HLE/sceRtc.h
 	Core/HLE/sceSas.cpp

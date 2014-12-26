@@ -5,12 +5,12 @@
 #include <algorithm>
 #include <string>
 
-
+#include "Core/HLE/FunctionWrappers.h"
 #include "Core/HLE/HLE.h"
-
-
-
+#include "Core/System.h"
+#include "Core/FileSystems/MetaFileSystem.h"
 #include "file/ini_file.h"
+#include "Common/ChunkFile.h"
 
 typedef unsigned int u32;
 
