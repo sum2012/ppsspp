@@ -52,6 +52,10 @@ void __RegShutdown()
 
 void __RegDoState(PointerWrap &p)
 {
+	auto s = p.Section("sceReg", 1, 1);
+	if (!s)
+		return;
+
 	p.Do(scereg_open);
 	if(scereg_open){
 		p.Do(scereg_objects);
