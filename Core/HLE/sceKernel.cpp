@@ -79,6 +79,7 @@
 #include "sceHeap.h"
 #include "sceDmac.h"
 #include "sceMp4.h"
+#include "sceReg.h"
 
 #include "../Util/PPGeDraw.h"
 
@@ -140,6 +141,7 @@ void __KernelInit()
 	__DmacInit();
 	__AudioCodecInit();
 	__VideoPmpInit();
+	__RegInit();
 	
 	SaveState::Init();  // Must be after IO, as it may create a directory
 	Reporting::Init();
@@ -169,6 +171,7 @@ void __KernelShutdown()
 	__NetAdhocShutdown();
 	__NetShutdown();
 	__FontShutdown();
+	__RegShutdown();
 
 	__Mp3Shutdown();
 	__MpegShutdown();
@@ -261,6 +264,7 @@ void __KernelDoState(PointerWrap &p)
 		__UsbDoState(p);
 		__VaudioDoState(p);
 		__HeapDoState(p);
+		__RegDoState(p);
 
 		__PPGeDoState(p);
 		__CheatDoState(p);
@@ -1003,4 +1007,24 @@ void Register_ThreadManForKernel()
 {
 	RegisterModule("ThreadManForKernel", ARRAY_SIZE(ThreadManForKernel), ThreadManForKernel);		
 
+}
+
+
+/*
+ * it should be return 0 for PSP1000, 1 for PSP2000 and 2 for PSP3000.
+ * return 0 for test.
+ */
+int kuKernelGetModel()
+{
+	return 0;
+}
+
+const HLEFunction KUBridge[] =
+{
+	{0x24331850,&WrapI_V<kuKernelGetModel>, "kuKernelGetModel"},
+};
+
+void Register_KUBridge()
+{
+	RegisterModule("KUBridge", ARRAY_SIZE(KUBridge), KUBridge);
 }

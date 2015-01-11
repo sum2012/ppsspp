@@ -89,8 +89,8 @@ static const char *lieAboutSuccessModules[] = {
 
 static const char *blacklistedModules[] = {
 	"sceATRAC3plus_Library",
-	"sceFont_Library",
-	"SceFont_Library",
+	//"sceFont_Library",
+	//"SceFont_Library",
 	"SceHttp_Library",
 	"sceMpeg_library",
 	"sceNetAdhocctl_Library",
@@ -654,13 +654,6 @@ void UnexportVarSymbol(const VarSymbolExport &var) {
 }
 
 void ImportFuncSymbol(const FuncSymbolImport &func) {
-	// Prioritize HLE implementations.
-	// TODO: Or not?
-	if (FuncImportIsSyscall(func.moduleName, func.nid)) {
-		WriteSyscall(func.moduleName, func.nid, func.stubAddr);
-		currentMIPS->InvalidateICache(func.stubAddr, 8);
-		return;
-	}
 
 	u32 error;
 	for (auto mod = loadedModules.begin(), modend = loadedModules.end(); mod != modend; ++mod) {
@@ -679,6 +672,14 @@ void ImportFuncSymbol(const FuncSymbolImport &func) {
 		}
 	}
 
+	// Prioritize HLE implementations.
+	// TODO: Or not?
+	if (FuncImportIsSyscall(func.moduleName, func.nid)) {
+		WriteSyscall(func.moduleName, func.nid, func.stubAddr);
+		currentMIPS->InvalidateICache(func.stubAddr, 8);
+		return;
+	}
+
 	// It hasn't been exported yet, but hopefully it will later.
 	if (GetModuleIndex(func.moduleName) != -1) {
 		WARN_LOG_REPORT(LOADER, "Unknown syscall in known module: %s 0x%08x", func.moduleName, func.nid);
@@ -692,8 +693,8 @@ void ImportFuncSymbol(const FuncSymbolImport &func) {
 void ExportFuncSymbol(const FuncSymbolExport &func) {
 	if (FuncImportIsSyscall(func.moduleName, func.nid)) {
 		// Oops, HLE covers this.
-		WARN_LOG_REPORT(LOADER, "Ignoring func export %s/%08x, already implemented in HLE.", func.moduleName, func.nid);
-		return;
+		WARN_LOG_REPORT(LOADER, "Func export %s/%08x override implemented in HLE.", func.moduleName, func.nid);
+		//return;
 	}
 
 	u32 error;
@@ -717,7 +718,7 @@ void ExportFuncSymbol(const FuncSymbolExport &func) {
 void UnexportFuncSymbol(const FuncSymbolExport &func) {
 	if (FuncImportIsSyscall(func.moduleName, func.nid)) {
 		// Oops, HLE covers this.
-		return;
+		//return;
 	}
 
 	u32 error;

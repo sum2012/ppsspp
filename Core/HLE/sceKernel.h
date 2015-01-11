@@ -580,3 +580,4 @@ void Register_LoadExecForUser();
 void Register_LoadExecForKernel();
 void Register_SysMemForKernel();
 void Register_UtilsForKernel();
+void Register_KUBridge();
