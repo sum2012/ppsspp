@@ -818,9 +818,9 @@ void GPUCommon::ExecuteOp(u32 op, u32 diff) {
 					DEBUG_LOG(G3D, "Signal without wait. signal/end: %04x %04x", signal, enddata);
 					break;
 				case PSP_GE_SIGNAL_HANDLER_PAUSE:
-					currentList->state = PSP_GE_DL_STATE_PAUSED;
+					trigger = false;
 					currentList->signal = behaviour;
-					ERROR_LOG_REPORT(G3D, "Signal with Pause UNIMPLEMENTED! signal/end: %04x %04x", signal, enddata);
+					ERROR_LOG(G3D, "Hack:Signal with Pause UNIMPLEMENTED! signal/end: %04x %04x", signal, enddata);
 					break;
 				case PSP_GE_SIGNAL_SYNC:
 					currentList->signal = behaviour;
