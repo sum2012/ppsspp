@@ -135,6 +135,7 @@ namespace
 
 	int GetSDKMainVersion(int sdkVersion)
 	{
+		/*
 		if(sdkVersion > 0x0307FFFF)
 			return 6;
 		if(sdkVersion > 0x0300FFFF)
@@ -148,6 +149,8 @@ namespace
 		if(sdkVersion >= 0x01000000)
 			return 1;
 		return 0;
+		*/
+		return 5;
 	};
 }
 
