@@ -414,7 +414,11 @@ struct Atrac {
 		} else if (bytes_read < 0) {
 			ERROR_LOG_REPORT(ME, "avcodec_decode_audio4: Error decoding audio %d / %08x", bytes_read, bytes_read);
 			failedDecode = true;
-			return ATDECODE_FAILED;
+			bytes_read = 1;
+			packet->size -= bytes_read;
+			packet->data += bytes_read;
+			//return ATDECODE_FAILED;
+			return ATDECODE_FEEDME;
 		}
 
 		if (packet == decodePacket) {
@@ -877,18 +881,34 @@ u32 _AtracDecodeData(int atracID, u8 *outbuf, u32 outbufPtr, u32 *SamplesNum, u3
 			}
 
 #ifdef USE_FFMPEG
+			if (atrac->failedDecode && (atrac->codecType == PSP_MODE_AT_3 || atrac->codecType == PSP_MODE_AT_3_PLUS) && atrac->pCodecCtx) {
+				WARN_LOG(ME, "We try to loop back");
+				atrac->failedDecode = false;
+				atrac->ForceSeekToSample(0);
+				offsetSamples = atrac->firstSampleoffset + firstOffsetExtra;
+				skipSamples = atrac->currentSample == 0 ? offsetSamples : 0;
+				maxSamples = atrac->endSample - atrac->currentSample;
+				unalignedSamples = (offsetSamples + atrac->currentSample) % atracSamplesPerFrame;
+				if (unalignedSamples != 0) {
+					// We're off alignment, possibly due to a loop.  Force it back on. 
+					maxSamples = atracSamplesPerFrame - unalignedSamples;
+					skipSamples = unalignedSamples;
+				}
+			}
 			if (!atrac->failedDecode && (atrac->codecType == PSP_MODE_AT_3 || atrac->codecType == PSP_MODE_AT_3_PLUS) && atrac->pCodecCtx) {
-				atrac->SeekToSample(atrac->currentSample);
-
+				atrac->SeekToSample(atrac->currentSample);										
 				AtracDecodeResult res = ATDECODE_FEEDME;
 				while (atrac->FillPacket()) {
 					res = atrac->DecodePacket();
 					if (res == ATDECODE_FAILED) {
+
+						
 						// Avoid getting stuck in a loop (Virtua Tennis)
 						*SamplesNum = 0;
 						*finish = 1;
 						*remains = 0;
 						return ATRAC_ERROR_ALL_DATA_DECODED;
+						
 					}
 
 					if (res == ATDECODE_GOTFRAME) {
