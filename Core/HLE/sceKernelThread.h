@@ -43,8 +43,9 @@ void sceKernelExitDeleteThread(int exitStatus);
 void sceKernelExitThread(int exitStatus);
 void _sceKernelExitThread(int exitStatus);
 SceUID sceKernelGetThreadId();
-void sceKernelGetThreadCurrentPriority();
+int sceKernelGetThreadCurrentPriority();
 int __KernelStartThread(SceUID threadToStartID, int argSize, u32 argBlockPtr, bool forceArgs = false);
+int __KernelStartThreadValidate(SceUID threadToStartID, int argSize, u32 argBlockPtr, bool forceArgs = false);
 int sceKernelStartThread(SceUID threadToStartID, int argSize, u32 argBlockPtr);
 u32 sceKernelSuspendDispatchThread();
 u32 sceKernelResumeDispatchThread(u32 suspended);
@@ -159,6 +160,7 @@ KernelObject *__KernelCallbackObject();
 void __KernelScheduleWakeup(int threadnumber, s64 usFromNow);
 SceUID __KernelGetCurThread();
 u32 __KernelGetCurThreadStack();
+u32 __KernelGetCurThreadStackStart();
 const char *__KernelGetThreadName(SceUID threadID);
 
 void __KernelSaveContext(ThreadContext *ctx, bool vfpuEnabled);

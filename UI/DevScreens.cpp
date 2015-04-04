@@ -41,6 +41,11 @@
 #include "UI/DevScreens.h"
 #include "UI/GameSettingsScreen.h"
 
+#ifdef _WIN32
+// Want to avoid including the full header here as it includes d3dx.h
+int GetD3DXVersion();
+#endif
+
 static const char *logLevelList[] = {
 	"Notice",
 	"Error",
@@ -63,12 +68,19 @@ void DevMenu::CreatePopupContents(UI::ViewGroup *parent) {
 	parent->Add(new Choice(de->T("Jit Compare")))->OnClick.Handle(this, &DevMenu::OnJitCompare);
 	parent->Add(new Choice(de->T("Toggle Freeze")))->OnClick.Handle(this, &DevMenu::OnFreezeFrame);
 	parent->Add(new Choice(de->T("Dump Frame GPU Commands")))->OnClick.Handle(this, &DevMenu::OnDumpFrame);
+	parent->Add(new Choice(de->T("Toggle Audio Debug")))->OnClick.Handle(this, &DevMenu::OnToggleAudioDebug);
 
 	RingbufferLogListener *ring = LogManager::GetInstance()->GetRingbufferListener();
 	if (ring) {
 		ring->SetEnable(true);
 	}
 }
+
+UI::EventReturn DevMenu::OnToggleAudioDebug(UI::EventParams &e) {
+	g_Config.bShowAudioDebug = !g_Config.bShowAudioDebug;
+	return UI::EVENT_DONE;
+}
+
 
 UI::EventReturn DevMenu::OnLogView(UI::EventParams &e) {
 	UpdateUIState(UISTATE_PAUSEMENU);
@@ -109,6 +121,7 @@ UI::EventReturn DevMenu::OnDumpFrame(UI::EventParams &e) {
 }
 
 void DevMenu::dialogFinished(const Screen *dialog, DialogResult result) {
+	UpdateUIState(UISTATE_INGAME);
 	// Close when a subscreen got closed.
 	// TODO: a bug in screenmanager causes this not to work here.
 	// screenManager()->finishDialog(this, DR_OK);
@@ -322,6 +335,9 @@ void SystemInfoScreen::CreateViews() {
 	deviceSpecs->Add(new InfoItem("Model", thin3d->GetInfoString(T3DInfo::RENDERER)));
 #ifdef _WIN32
 	deviceSpecs->Add(new InfoItem("Driver Version", System_GetProperty(SYSPROP_GPUDRIVER_VERSION)));
+	if (g_Config.iGPUBackend == GPU_BACKEND_DIRECT3D9) {
+		deviceSpecs->Add(new InfoItem("D3DX Version", StringFromFormat("%d", GetD3DXVersion())));
+	}
 #endif
 
 #ifdef ANDROID
@@ -407,7 +423,7 @@ void SystemInfoScreen::CreateViews() {
 	SplitString(g_all_gl_extensions, ' ', exts);
 	std::sort(exts.begin(), exts.end());
 	for (size_t i = 0; i < exts.size(); i++) {
-		oglExtensions->Add(new TextView(exts[i]));
+		oglExtensions->Add(new TextView(exts[i]))->SetFocusable(true);
 	}
 
 	exts.clear();
@@ -426,7 +442,7 @@ void SystemInfoScreen::CreateViews() {
 		eglExtensions->Add(new ItemHeader("EGL Extensions"));
 
 		for (size_t i = 0; i < exts.size(); i++) {
-			eglExtensions->Add(new TextView(exts[i]));
+			eglExtensions->Add(new TextView(exts[i]))->SetFocusable(true);
 		}
 	}
 }
@@ -591,7 +607,7 @@ void JitCompareScreen::UpdateDisasm() {
 		char temp[256];
 		MIPSDisAsm(Memory::Read_Instruction(addr), addr, temp, true);
 		std::string mipsDis = temp;
-		leftDisasm_->Add(new TextView(mipsDis));
+		leftDisasm_->Add(new TextView(mipsDis))->SetFocusable(true);
 	}
 
 #if defined(ARM)
@@ -600,7 +616,7 @@ void JitCompareScreen::UpdateDisasm() {
 	std::vector<std::string> targetDis = DisassembleX86(block->normalEntry, block->codeSize);
 #endif
 	for (size_t i = 0; i < targetDis.size(); i++) {
-		rightDisasm_->Add(new TextView(targetDis[i]));
+		rightDisasm_->Add(new TextView(targetDis[i]))->SetFocusable(true);
 	}
 
 	int numMips = leftDisasm_->GetNumSubviews();

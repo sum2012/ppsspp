@@ -35,6 +35,7 @@
 #include "Common/StringUtils.h"
 #include "Core/Config.h"
 #include "Core/Loaders.h"
+#include "GPU/Common/FramebufferCommon.h"
 #include "HLE/sceUtility.h"
 
 #ifndef USING_QT_UI
@@ -348,6 +349,8 @@ static ConfigSetting cpuSettings[] = {
 };
 
 static int DefaultRenderingMode() {
+	// Workaround for ancient device. Can probably be removed now as we do no longer
+	// support Froyo (Android 2.2)...
 	if (System_GetProperty(SYSPROP_NAME) == "samsung:GT-S5360") {
 		return 0;  // Non-buffered
 	}
@@ -359,7 +362,8 @@ static int DefaultInternalResolution() {
 #if defined(USING_WIN_UI)
 	return 0;
 #else
-	return pixel_xres >= 1024 ? 2 : 1;
+	int longestDisplaySide = std::max(System_GetPropertyInt(SYSPROP_DISPLAY_XRES), System_GetPropertyInt(SYSPROP_DISPLAY_YRES));
+	return longestDisplaySide >= 1000 ? 2 : 1;
 #endif
 }
 
@@ -479,17 +483,27 @@ static ConfigSetting soundSettings[] = {
 	ConfigSetting("AudioBackend", &g_Config.iAudioBackend, 0, true, true),
 	ConfigSetting("AudioLatency", &g_Config.iAudioLatency, 1, true, true),
 	ConfigSetting("SoundSpeedHack", &g_Config.bSoundSpeedHack, false, true, true),
+	ConfigSetting("AudioResampler", &g_Config.bAudioResampler, true, true, true),
 
 	ConfigSetting(false),
 };
 
 static bool DefaultShowTouchControls() {
 #if defined(MOBILE_DEVICE)
-	std::string name = System_GetProperty(SYSPROP_NAME);
-	if (KeyMap::HasBuiltinController(name)) {
+	int deviceType = System_GetPropertyInt(SYSPROP_DEVICE_TYPE);
+	if (deviceType == DEVICE_TYPE_MOBILE) {
+		std::string name = System_GetProperty(SYSPROP_NAME);
+		if (KeyMap::HasBuiltinController(name)) {
+			return false;
+		} else {
+			return true;
+		}
+	} else if (deviceType == DEVICE_TYPE_TV) {
+		return false;
+	} else if (deviceType == DEVICE_TYPE_DESKTOP) {
 		return false;
 	} else {
-		return true;
+		return false;
 	}
 #else
 	return false;
@@ -538,8 +552,10 @@ static ConfigSetting controlSettings[] = {
 #endif
 
 	ConfigSetting("DisableDpadDiagonals", &g_Config.bDisableDpadDiagonals, false, true, true),
+	ConfigSetting("GamepadOnlyFocused", &g_Config.bGamepadOnlyFocused, false, true, true),
 	ConfigSetting("TouchButtonStyle", &g_Config.iTouchButtonStyle, 1, true, true),
 	ConfigSetting("TouchButtonOpacity", &g_Config.iTouchButtonOpacity, 65, true, true),
+	ConfigSetting("AutoCenterTouchAnalog", &g_Config.bAutoCenterTouchAnalog, false, true, true),
 
 	// -1.0f means uninitialized, set in GamepadEmu::CreatePadLayout().
 	ConfigSetting("ActionButtonSpacing2", &g_Config.fActionButtonSpacing, 1.0f, true, true),
@@ -570,6 +586,17 @@ static ConfigSetting controlSettings[] = {
 	ConfigSetting("AnalogStickX", &g_Config.fAnalogStickX, -1.0f, true, true),
 	ConfigSetting("AnalogStickY", &g_Config.fAnalogStickY, -1.0f, true, true),
 	ConfigSetting("AnalogStickScale", &g_Config.fAnalogStickScale, defaultControlScale, true, true),
+#ifdef _WIN32
+	ConfigSetting("DInputAnalogDeadzone", &g_Config.fDInputAnalogDeadzone, 0.1f, true, true),
+	ConfigSetting("DInputAnalogInverseMode", &g_Config.iDInputAnalogInverseMode, 0, true, true),
+	ConfigSetting("DInputAnalogInverseDeadzone", &g_Config.fDInputAnalogInverseDeadzone, 0.0f, true, true),
+	ConfigSetting("DInputAnalogSensitivity", &g_Config.fDInputAnalogSensitivity, 1.0f, true, true),
+
+	ConfigSetting("XInputAnalogDeadzone", &g_Config.fXInputAnalogDeadzone, 0.24f, true, true),
+	ConfigSetting("XInputAnalogInverseMode", &g_Config.iXInputAnalogInverseMode, 0, true, true),
+	ConfigSetting("XInputAnalogInverseDeadzone", &g_Config.fXInputAnalogInverseDeadzone, 0.0f, true, true),
+	ConfigSetting("XInputAnalogSensitivity", &g_Config.fXInputAnalogSensitivity, 1.0f, true, true),
+#endif
 	ConfigSetting("AnalogLimiterDeadzone", &g_Config.fAnalogLimiterDeadzone, 0.6f, true, true),
 
 	ConfigSetting(false),
@@ -867,6 +894,10 @@ void Config::Load(const char *iniFileName, const char *controllerIniFilename) {
 	// Fix Wrong MAC address by old version by "Change MAC address"
 	if (sMACAddress.length() != 17)
 		sMACAddress = CreateRandMAC();
+
+	if (g_Config.bAutoFrameSkip && g_Config.iRenderingMode == FB_NON_BUFFERED_MODE) {
+		g_Config.iRenderingMode = FB_BUFFERED_MODE;
+	}
 }
 
 void Config::Save() {
@@ -1098,6 +1129,7 @@ bool Config::hasGameConfig(const std::string &pGameId)
 
 void Config::changeGameSpecific(const std::string &pGameId)
 {
+	Save();
 	gameId_ = pGameId;
 	bGameSpecific = !pGameId.empty();
 }

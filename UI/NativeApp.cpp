@@ -222,7 +222,8 @@ std::string NativeQueryConfig(std::string query) {
 			scale -= 1;
 		}
 
-		sprintf(temp, "%i", scale);
+		int max_res = std::max(System_GetPropertyInt(SYSPROP_DISPLAY_XRES), System_GetPropertyInt(SYSPROP_DISPLAY_YRES)) / 480 + 1;
+		sprintf(temp, "%i", std::min(scale, max_res));
 		return std::string(temp);
 	} else if (query == "force44khz") {
 		return std::string("0");
@@ -232,12 +233,12 @@ std::string NativeQueryConfig(std::string query) {
 }
 
 int NativeMix(short *audio, int num_samples) {
-	if (GetUIState() == UISTATE_INGAME) {
-		int sample_rate = System_GetPropertyInt(SYSPROP_AUDIO_SAMPLE_RATE);
-		num_samples = __AudioMix(audio, num_samples, sample_rate > 0 ? sample_rate : 44100);
-	}	else {
-		MixBackgroundAudio(audio, num_samples);
+	if (GetUIState() != UISTATE_INGAME) {
+		PlayBackgroundAudio();
 	}
+
+	int sample_rate = System_GetPropertyInt(SYSPROP_AUDIO_SAMPLE_RATE);
+	num_samples = __AudioMix(audio, num_samples, sample_rate > 0 ? sample_rate : 44100);
 
 #ifdef _WIN32
 	winAudioBackend->Update();
@@ -475,7 +476,9 @@ void NativeInit(int argc, const char *argv[],
 
 	// We do this here, instead of in NativeInitGraphics, because the display may be reset.
 	// When it's reset we don't want to forget all our managed things.
-	gl_lost_manager_init();
+	if (g_Config.iGPUBackend == GPU_BACKEND_OPENGL) {
+		gl_lost_manager_init();
+	}
 }
 
 void NativeInitGraphics() {
@@ -727,15 +730,6 @@ void NativeRender() {
 		TakeScreenshot();
 	}
 
-	if (resized) {
-		resized = false;
-		if (g_Config.iGPUBackend == GPU_BACKEND_DIRECT3D9) {
-#ifdef _WIN32
-			D3D9_Resize(0);
-#endif
-		}
-	}
-
 	thin3d->SetScissorEnabled(false);
 	if (g_Config.iGPUBackend == GPU_BACKEND_OPENGL) {
 		glstate.depthWrite.set(GL_TRUE);
@@ -745,6 +739,15 @@ void NativeRender() {
 		DX9::dxstate.depthWrite.set(true);
 		DX9::dxstate.colorMask.set(true, true, true, true);
 #endif
+	}
+
+	if (resized) {
+		resized = false;
+		if (g_Config.iGPUBackend == GPU_BACKEND_DIRECT3D9) {
+#ifdef _WIN32
+			D3D9_Resize(0);
+#endif
+		}
 	}
 }
 
@@ -771,8 +774,11 @@ void NativeUpdate(InputState &input) {
 void NativeDeviceLost() {
 	g_gameInfoCache.Clear();
 	screenManager->deviceLost();
-	gl_lost();
-	glstate.Restore();
+
+	if (g_Config.iGPUBackend == GPU_BACKEND_OPENGL) {
+		gl_lost();
+		glstate.Restore();
+	}
 	// Should dirty EVERYTHING
 }
 
@@ -878,7 +884,8 @@ bool NativeAxis(const AxisInput &axis) {
 			return false;
 
 		default:
-			return false;
+			// Don't take over completely!
+			return screenManager->axis(axis);
 	}
 
 	//figure out the sensitivity of the tilt. (sensitivity is originally 0 - 100)
@@ -940,7 +947,9 @@ void NativeResized() {
 }
 
 void NativeShutdown() {
-	gl_lost_manager_shutdown();
+	if (g_Config.iGPUBackend == GPU_BACKEND_OPENGL) {
+		gl_lost_manager_shutdown();
+	}
 
 	screenManager->shutdown();
 	delete screenManager;

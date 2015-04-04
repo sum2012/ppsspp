@@ -91,9 +91,9 @@ static const int atracDecodeDelay = 2300;
 #ifdef USE_FFMPEG
 
 extern "C" {
-#include <libavformat/avformat.h>
-#include <libswresample/swresample.h>
-#include <libavutil/samplefmt.h>
+#include "libavformat/avformat.h"
+#include "libswresample/swresample.h"
+#include "libavutil/samplefmt.h"
 }
 
 #endif // USE_FFMPEG
@@ -128,7 +128,8 @@ struct AtracLoopInfo {
 };
 
 struct Atrac {
-	Atrac() : atracID(-1), data_buf(0), decodePos(0), decodeEnd(0), atracChannels(0), atracOutputChannels(2),
+	Atrac() : atracID(-1), data_buf(0), decodePos(0), decodeEnd(0), bufferPos(0),
+		atracChannels(0),atracOutputChannels(2),
 		atracBitrate(64), atracBytesPerFrame(0), atracBufSize(0),
 		currentSample(0), endSample(0), firstSampleoffset(0), dataOff(0),
 		loopinfoNum(0), loopStartSample(-1), loopEndSample(-1), loopNum(0),
@@ -165,7 +166,7 @@ struct Atrac {
 	}
 
 	void DoState(PointerWrap &p) {
-		auto s = p.Section("Atrac", 1, 3);
+		auto s = p.Section("Atrac", 1, 4);
 		if (!s)
 			return;
 
@@ -203,6 +204,11 @@ struct Atrac {
 
 		p.Do(decodePos);
 		p.Do(decodeEnd);
+		if (s >= 4) {
+			p.Do(bufferPos);
+		} else {
+			bufferPos = decodePos;
+		}
 
 		p.Do(atracBitrate);
 		p.Do(atracBytesPerFrame);
@@ -250,6 +256,7 @@ struct Atrac {
 
 	u32 decodePos;
 	u32 decodeEnd;
+	u32 bufferPos;
 
 	u16 atracChannels;
 	u16 atracOutputChannels;
@@ -313,11 +320,47 @@ struct Atrac {
 		packet = nullptr;
 	}
 
-	void SeekToSample(int sample) {
-		s64 seek_pos = (s64)sample;
-		av_seek_frame(pFormatCtx, audio_stream_index, seek_pos, 0);
+	void ForceSeekToSample(int sample) {
+		av_seek_frame(pFormatCtx, audio_stream_index, sample + 0x200000, 0);
+		av_seek_frame(pFormatCtx, audio_stream_index, sample, 0);
+		avcodec_flush_buffers(pCodecCtx);
+
 		// Discard any pending packet data.
 		packet->size = 0;
+
+		currentSample = sample;
+	}
+
+	void SeekToSample(int sample) {
+		const u32 atracSamplesPerFrame = (codecType == PSP_MODE_AT_3_PLUS ? ATRAC3PLUS_MAX_SAMPLES : ATRAC3_MAX_SAMPLES);
+
+		// Discard any pending packet data.
+		packet->size = 0;
+
+		// Some kind of header size?
+		const u32 firstOffsetExtra = codecType == PSP_CODEC_AT3PLUS ? 368 : 69;
+		// It seems like the PSP aligns the sample position to 0x800...?
+		const u32 offsetSamples = firstSampleoffset + firstOffsetExtra;
+		const u32 unalignedSamples = (offsetSamples + sample) % atracSamplesPerFrame;
+		int seekFrame = sample + offsetSamples - unalignedSamples;
+
+		if (sample != currentSample) {
+			// "Seeking" by reading frames seems to work much better.
+			av_seek_frame(pFormatCtx, audio_stream_index, 0, AVSEEK_FLAG_BACKWARD);
+			avcodec_flush_buffers(pCodecCtx);
+
+			for (int i = 0; i < seekFrame; i += atracSamplesPerFrame) {
+				while (FillPacket() && DecodePacket() == ATDECODE_FEEDME) {
+					continue;
+				}
+			}
+		} else {
+			// For some reason, if we skip seeking, we get the wrong amount of data.
+			// (even without flushing the packet...)
+			av_seek_frame(pFormatCtx, audio_stream_index, seekFrame, 0);
+			avcodec_flush_buffers(pCodecCtx);
+		}
+		currentSample = sample;
 	}
 
 	bool FillPacket() {
@@ -351,11 +394,13 @@ struct Atrac {
 			packet->size = 0;
 
 			if (FillPacket()) {
-				if (packet->size >= needed) {
-					memcpy(tempPacket.data + initialSize, packet->data, needed);
-					packet->size -= needed;
-					packet->data += needed;
-				}
+				int to_copy = packet->size >= needed ? needed : packet->size;
+				memcpy(tempPacket.data + initialSize, packet->data, to_copy);
+				packet->size -= to_copy;
+				packet->data += to_copy;
+				tempPacket.size = initialSize + to_copy;
+			} else {
+				tempPacket.size = initialSize;
 			}
 			decodePacket = &tempPacket;
 		}
@@ -406,7 +451,7 @@ struct AtracResetBufferInfo {
 const int PSP_NUM_ATRAC_IDS = 6;
 static bool atracInited = true;
 static Atrac *atracIDs[PSP_NUM_ATRAC_IDS];
-static int atracIDTypes[PSP_NUM_ATRAC_IDS];
+static u32 atracIDTypes[PSP_NUM_ATRAC_IDS];
 
 void __AtracInit() {
 	atracInited = true;
@@ -495,6 +540,7 @@ void Atrac::AnalyzeReset() {
 	loopStartSample = -1;
 	loopEndSample = -1;
 	decodePos = 0;
+	bufferPos = 0;
 	atracChannels = 2;
 }
 
@@ -829,19 +875,18 @@ u32 _AtracDecodeData(int atracID, u8 *outbuf, u32 outbufPtr, u32 *SamplesNum, u3
 			u32 firstOffsetExtra = atrac->codecType == PSP_CODEC_AT3PLUS ? 368 : 69;
 			// It seems like the PSP aligns the sample position to 0x800...?
 			int offsetSamples = atrac->firstSampleoffset + firstOffsetExtra;
-			int skipSamples = atrac->currentSample == 0 ? offsetSamples : 0;
+			int skipSamples = 0;
 			u32 maxSamples = atrac->endSample - atrac->currentSample;
 			u32 unalignedSamples = (offsetSamples + atrac->currentSample) % atracSamplesPerFrame;
 			if (unalignedSamples != 0) {
 				// We're off alignment, possibly due to a loop.  Force it back on.
 				maxSamples = atracSamplesPerFrame - unalignedSamples;
+				skipSamples = unalignedSamples;
 			}
 
 #ifdef USE_FFMPEG
 			if (!atrac->failedDecode && (atrac->codecType == PSP_MODE_AT_3 || atrac->codecType == PSP_MODE_AT_3_PLUS) && atrac->pCodecCtx) {
-				int forceseekSample = atrac->currentSample * 2 > atrac->endSample ? 0 : atrac->endSample;
-				atrac->SeekToSample(forceseekSample);
-				atrac->SeekToSample(atrac->currentSample == 0 ? 0 : atrac->currentSample + offsetSamples);
+				atrac->SeekToSample(atrac->currentSample);
 
 				AtracDecodeResult res = ATDECODE_FEEDME;
 				while (atrac->FillPacket()) {
@@ -918,7 +963,7 @@ u32 _AtracDecodeData(int atracID, u8 *outbuf, u32 outbufPtr, u32 *SamplesNum, u3
 			int finishFlag = 0;
 			if (atrac->loopNum != 0 && (atrac->currentSample > atrac->loopEndSample ||
 				(numSamples == 0 && atrac->first.size >= atrac->first.filesize))) {
-				atrac->currentSample = atrac->loopStartSample;
+				atrac->SeekToSample(atrac->loopStartSample);
 				if (atrac->loopNum > 0)
 					atrac->loopNum --;
 			} else if (atrac->currentSample >= atrac->endSample ||
@@ -1033,14 +1078,17 @@ static u32 sceAtracGetBitrate(int atracID, u32 outBitrateAddr) {
 		ERROR_LOG(ME, "sceAtracGetBitrate(%i, %08x): no data", atracID, outBitrateAddr);
 		return ATRAC_ERROR_NO_DATA;
 	} else {
-		DEBUG_LOG(ME, "sceAtracGetBitrate(%i, %08x)", atracID, outBitrateAddr);
 		atrac->atracBitrate = ( atrac->atracBytesPerFrame * 352800 ) / 1000;
 		if (atrac->codecType == PSP_MODE_AT_3_PLUS)
 			atrac->atracBitrate = ((atrac->atracBitrate >> 11) + 8) & 0xFFFFFFF0;
 		else
 			atrac->atracBitrate = (atrac->atracBitrate + 511) >> 10;
-		if (Memory::IsValidAddress(outBitrateAddr))
+		if (Memory::IsValidAddress(outBitrateAddr)) {
 			Memory::Write_U32(atrac->atracBitrate, outBitrateAddr);
+			DEBUG_LOG(ME, "sceAtracGetBitrate(%i, %08x[%d])", atracID, outBitrateAddr, atrac->atracBitrate);
+		}
+		else
+			DEBUG_LOG_REPORT(ME, "sceAtracGetBitrate(%i, %08x[%d]) invalid address", atracID, outBitrateAddr, atrac->atracBitrate);
 	}
 	return 0;
 }
@@ -1054,9 +1102,12 @@ static u32 sceAtracGetChannel(int atracID, u32 channelAddr) {
 		ERROR_LOG(ME, "sceAtracGetChannel(%i, %08x): no data", atracID, channelAddr);
 		return ATRAC_ERROR_NO_DATA;
 	} else {
-		DEBUG_LOG(ME, "sceAtracGetChannel(%i, %08x)", atracID, channelAddr);
-		if (Memory::IsValidAddress(channelAddr))
+		if (Memory::IsValidAddress(channelAddr)){
 			Memory::Write_U32(atrac->atracChannels, channelAddr);
+			DEBUG_LOG(ME, "sceAtracGetChannel(%i, %08x[%d])", atracID, channelAddr, atrac->atracChannels);
+		}
+		else
+			DEBUG_LOG_REPORT(ME, "sceAtracGetChannel(%i, %08x[%d]) invalid address", atracID, channelAddr, atrac->atracChannels);
 	}
 	return 0;
 }
@@ -1189,10 +1240,12 @@ static u32 sceAtracGetRemainFrame(int atracID, u32 remainAddr) {
 		ERROR_LOG(ME, "sceAtracGetRemainFrame(%i, %08x): no data", atracID, remainAddr);
 		return ATRAC_ERROR_NO_DATA;
 	} else {
-		DEBUG_LOG(ME, "sceAtracGetRemainFrame(%i, %08x)", atracID, remainAddr);
 		if (Memory::IsValidAddress(remainAddr)) {
 			Memory::Write_U32(atrac->getRemainFrames(), remainAddr);
+			DEBUG_LOG(ME, "sceAtracGetRemainFrame(%i, %08x[%d])", atracID, remainAddr, atrac->getRemainFrames());
 		}
+		else
+			DEBUG_LOG_REPORT(ME, "sceAtracGetRemainFrame(%i, %08x[%d]) invalid address", atracID, remainAddr, atrac->getRemainFrames());
 		// Let sceAtracGetStreamDataInfo() know to set the full filled buffer .
 		atrac->resetBuffer = true;
 
@@ -1228,13 +1281,17 @@ static u32 sceAtracGetSoundSample(int atracID, u32 outEndSampleAddr, u32 outLoop
 		ERROR_LOG(ME, "sceAtracGetSoundSample(%i, %08x, %08x, %08x): no data", atracID, outEndSampleAddr, outLoopStartSampleAddr, outLoopEndSampleAddr);
 		return ATRAC_ERROR_NO_DATA;
 	} else {
-		DEBUG_LOG(ME, "sceAtracGetSoundSample(%i, %08x, %08x, %08x)", atracID, outEndSampleAddr, outLoopStartSampleAddr, outLoopEndSampleAddr);
 		if (Memory::IsValidAddress(outEndSampleAddr))
 			Memory::Write_U32(atrac->endSample - 1, outEndSampleAddr);
 		if (Memory::IsValidAddress(outLoopStartSampleAddr))
 			Memory::Write_U32(atrac->loopStartSample, outLoopStartSampleAddr);
 		if (Memory::IsValidAddress(outLoopEndSampleAddr))
 			Memory::Write_U32(atrac->loopEndSample, outLoopEndSampleAddr);
+		if (Memory::IsValidAddress(outEndSampleAddr) && (Memory::IsValidAddress(outLoopStartSampleAddr)) && (Memory::IsValidAddress(outLoopEndSampleAddr)))
+			DEBUG_LOG(ME, "sceAtracGetSoundSample(%i, %08x[%08x], %08x[%d], %08x[%d])", atracID, outEndSampleAddr, atrac->endSample - 1, outLoopStartSampleAddr, atrac->loopStartSample, outLoopEndSampleAddr, atrac->loopEndSample);
+		else
+			DEBUG_LOG_REPORT(ME, "sceAtracGetSoundSample(%i, %08x[%08x], %08x[%d], %08x[%d]) invalid address", atracID, outEndSampleAddr, atrac->endSample - 1, outLoopStartSampleAddr, atrac->loopStartSample, outLoopEndSampleAddr, atrac->loopEndSample);
+
 	}
 	return 0;
 }
@@ -1251,10 +1308,14 @@ static u32 sceAtracGetStreamDataInfo(int atracID, u32 writeAddr, u32 writableByt
 		ERROR_LOG(ME, "sceAtracGetStreamDataInfo(%i, %08x, %08x, %08x): no data", atracID, writeAddr, writableBytesAddr, readOffsetAddr);
 		return ATRAC_ERROR_NO_DATA;
 	} else {
+		// TODO: Is this check even needed?  More testing is needed on writableBytes.
 		if (atrac->resetBuffer) {
-			// Reset temp buf for adding more stream data and set full filled buffer 
+			// Reset temp buf for adding more stream data and set full filled buffer.
 			atrac->first.writableBytes = std::min(atrac->first.filesize - atrac->first.size, atrac->atracBufSize);
+		} else {
+			atrac->first.writableBytes = std::min(atrac->first.filesize - atrac->first.size, atrac->first.writableBytes);
 		}
+
 		atrac->first.offset = 0;
 		if (Memory::IsValidAddress(writeAddr))
 			Memory::Write_U32(atrac->first.addr, writeAddr);
@@ -1262,11 +1323,17 @@ static u32 sceAtracGetStreamDataInfo(int atracID, u32 writeAddr, u32 writableByt
 			Memory::Write_U32(atrac->first.writableBytes, writableBytesAddr);
 		if (Memory::IsValidAddress(readOffsetAddr))
 			Memory::Write_U32(atrac->first.fileoffset, readOffsetAddr);
-		
-		DEBUG_LOG(ME, "sceAtracGetStreamDataInfo(%i, %08x[%08x], %08x[%08x], %08x[%08x])", atracID, 
+		if ((Memory::IsValidAddress(writeAddr)) && (Memory::IsValidAddress(writableBytesAddr)) && (Memory::IsValidAddress(readOffsetAddr)))
+			DEBUG_LOG(ME, "sceAtracGetStreamDataInfo(%i, %08x[%08x], %08x[%08x], %08x[%08x])", atracID, 
 				  writeAddr, atrac->first.addr,
 				  writableBytesAddr, atrac->first.writableBytes,
 				  readOffsetAddr, atrac->first.fileoffset);
+		else
+			//TODO:Use JPCSPtrace to correct
+			DEBUG_LOG_REPORT(ME, "sceAtracGetStreamDataInfo(%i, %08x[%08x], %08x[%08x], %08x[%08x]) invalid address", atracID,
+			writeAddr, atrac->first.addr,
+			writableBytesAddr, atrac->first.writableBytes,
+			readOffsetAddr, atrac->first.fileoffset);
 	}
 	return 0;
 }
@@ -1288,13 +1355,13 @@ static u32 sceAtracResetPlayPosition(int atracID, int sample, int bytesWrittenFi
 		INFO_LOG(ME, "sceAtracResetPlayPosition(%i, %i, %i, %i)", atracID, sample, bytesWrittenFirstBuf, bytesWrittenSecondBuf);
 		if (bytesWrittenFirstBuf > 0)
 			sceAtracAddStreamData(atracID, bytesWrittenFirstBuf);
-		atrac->currentSample = sample;
 #ifdef USE_FFMPEG
 		if ((atrac->codecType == PSP_MODE_AT_3 || atrac->codecType == PSP_MODE_AT_3_PLUS) && atrac->pCodecCtx) {
 			atrac->SeekToSample(sample);
 		} else
 #endif // USE_FFMPEG
 		{
+			atrac->currentSample = sample;
 			atrac->decodePos = atrac->getDecodePosBySample(sample);
 		}
 	}
@@ -1304,13 +1371,13 @@ static u32 sceAtracResetPlayPosition(int atracID, int sample, int bytesWrittenFi
 #ifdef USE_FFMPEG
 static int _AtracReadbuffer(void *opaque, uint8_t *buf, int buf_size) {
 	Atrac *atrac = (Atrac *)opaque;
-	if (atrac->decodePos > atrac->first.filesize)
+	if (atrac->bufferPos > atrac->first.filesize)
 		return -1;
 	int size = std::min((int)atrac->atracBufSize, buf_size);
-	size = std::max(std::min(((int)atrac->first.size - (int)atrac->decodePos), size), 0);
+	size = std::max(std::min(((int)atrac->first.size - (int)atrac->bufferPos), size), 0);
 	if (size > 0)
-		memcpy(buf, atrac->data_buf + atrac->decodePos, size);
-	atrac->decodePos += size;
+		memcpy(buf, atrac->data_buf + atrac->bufferPos, size);
+	atrac->bufferPos += size;
 	return size;
 }
 
@@ -1321,20 +1388,20 @@ static int64_t _AtracSeekbuffer(void *opaque, int64_t offset, int whence) {
 
 	switch (whence) {
 	case SEEK_SET:
-		atrac->decodePos = (u32)offset;
+		atrac->bufferPos = (u32)offset;
 		break;
 	case SEEK_CUR:
-		atrac->decodePos += (u32)offset;
+		atrac->bufferPos += (u32)offset;
 		break;
 	case SEEK_END:
-		atrac->decodePos = atrac->first.filesize - (u32)offset;
+		atrac->bufferPos = atrac->first.filesize - (u32)offset;
 		break;
 #ifdef USE_FFMPEG
 	case AVSEEK_SIZE:
 		return atrac->first.filesize;
 #endif
 	}
-	return atrac->decodePos;
+	return atrac->bufferPos;
 }
 
 #endif // USE_FFMPEG
@@ -1547,7 +1614,7 @@ static u32 sceAtracSetData(int atracID, u32 buffer, u32 bufferSize) {
 		int ret = atrac->Analyze();
 		if (ret < 0) {
 			ERROR_LOG_REPORT(ME, "sceAtracSetData(%i, %08x, %08x): bad data", atracID, buffer, bufferSize);
-		} else if ((int)atrac->codecType != atracIDTypes[atracID]) {
+		} else if (atrac->codecType != atracIDTypes[atracID]) {
 			ERROR_LOG_REPORT(ME, "sceAtracSetData(%i, %08x, %08x): atracID uses different codec type than data", atracID, buffer, bufferSize);
 			ret = ATRAC_ERROR_WRONG_CODECTYPE;
 		} else {
@@ -1940,69 +2007,74 @@ static int _sceAtracGetContextAddress(int atracID) {
 	return atrac->atracContext.ptr;
 }
 
-// TODO: Use proper structs with named member instead, or something. This is embarrassing.
+struct At3HeaderMap {
+	u16 bytes;
+	u16 channels;
+	u8 headerVal1;
+	u8 headerVal2;
+
+	bool Matches(const Atrac *at) const {
+		return bytes == at->atracBytesPerFrame && channels == at->atracChannels;
+	}
+};
+
 static const u8 at3HeaderTemplate[] ={0x52,0x49,0x46,0x46,0x3b,0xbe,0x00,0x00,0x57,0x41,0x56,0x45,0x66,0x6d,0x74,0x20,0x20,0x00,0x00,0x00,0x70,0x02,0x02,0x00,0x44,0xac,0x00,0x00,0x4d,0x20,0x00,0x00,0xc0,0x00,0x00,0x00,0x0e,0x00,0x01,0x00,0x00,0x10,0x00,0x00,0x01,0x00,0x01,0x00,0x01,0x00,0x00,0x00,0x64,0x61,0x74,0x61,0xc0,0xbd,0x00,0x00};
-static const u16 at3HeaderMap[][4] = {
+static const At3HeaderMap at3HeaderMap[] = {
     { 0x00C0, 0x1, 0x8,  0x00 },
     { 0x0098, 0x1, 0x8,  0x00 },
     { 0x0180, 0x2, 0x10, 0x00 },
     { 0x0130, 0x2, 0x10, 0x00 },
     { 0x00C0, 0x2, 0x10, 0x01 }
 };
-static const int at3HeaderMapSize = sizeof(at3HeaderMap) / (sizeof(u16) * 4);
+
+struct At3plusHeaderMap {
+	u16 bytes;
+	u16 channels;
+	u16 headerVal;
+
+	bool Matches(const Atrac *at) const {
+		return bytes == at->atracBytesPerFrame && channels == at->atracChannels;
+	}
+};
 
 static const u8 at3plusHeaderTemplate[] = { 0x52, 0x49, 0x46, 0x46, 0x00, 0xb5, 0xff, 0x00, 0x57, 0x41, 0x56, 0x45, 0x66, 0x6d, 0x74, 0x20, 0x34, 0x00, 0x00, 0x00, 0xfe, 0xff, 0x02, 0x00, 0x44, 0xac, 0x00, 0x00, 0xa0, 0x1f, 0x00, 0x00, 0xe8, 0x02, 0x00, 0x00, 0x22, 0x00, 0x00, 0x08, 0x03, 0x00, 0x00, 0x00, 0xbf, 0xaa, 0x23, 0xe9, 0x58, 0xcb, 0x71, 0x44, 0xa1, 0x19, 0xff, 0xfa, 0x01, 0xe4, 0xce, 0x62, 0x01, 0x00, 0x28, 0x5c, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00, 0x66, 0x61, 0x63, 0x74, 0x08, 0x00, 0x00, 0x00, 0xff, 0xff, 0xff, 0x00, 0x00, 0x08, 0x00, 0x00, 0x64, 0x61, 0x74, 0x61, 0xa8, 0xb4, 0xff, 0x00 };
-static const u16 at3plusHeaderMap[][3] = {
-	{ 0x00C0, 0x1, 0x0 },
-	{ 0x1724, 0x0, 0x0 },
-	{ 0x0180, 0x1, 0x0 },
-	{ 0x2224, 0x0, 0x0 },
-	{ 0x0178, 0x1, 0x0 },
-	{ 0x2E24, 0x0, 0x0 },
+static const At3plusHeaderMap at3plusHeaderMap[] = {
+	{ 0x00C0, 0x1, 0x1724 },
+	{ 0x0180, 0x1, 0x2224 },
+	{ 0x0178, 0x1, 0x2E24 },
 
-	{ 0x0230, 0x1, 0x0 },
-	{ 0x4524, 0x0, 0x0 },
-	{ 0x02E8, 0x1, 0x0 },
-	{ 0x5C24, 0x0, 0x0 },
+	{ 0x0230, 0x1, 0x4524 },
+	{ 0x02E8, 0x1, 0x5C24 },
+	{ 0x0118, 0x1, 0x2224 },
 
-	{ 0x0118, 0x2, 0x0 },
-	{ 0x2228, 0x0, 0x0 },
-	{ 0x0178, 0x2, 0x0 },
-	{ 0x2E28, 0x0, 0x0 },
+	{ 0x0118, 0x2, 0x2228 },
+	{ 0x0178, 0x2, 0x2E28 },
 
-	{ 0x0230, 0x2, 0x0 },
-	{ 0x4528, 0x0, 0x0 },
-	{ 0x02E8, 0x2, 0x0 },
-	{ 0x5C28, 0x0, 0x0 },
+	{ 0x0230, 0x2, 0x4528 },
+	{ 0x02E8, 0x2, 0x5C28 },
 
-	{ 0x03A8, 0x2, 0x0 },
-	{ 0x7428, 0x0, 0x0 },
-	{ 0x0460, 0x2, 0x0 },
-	{ 0x8B28, 0x0, 0x0 },
+	{ 0x03A8, 0x2, 0x7428 },
+	{ 0x0460, 0x2, 0x8B28 },
 
-	{ 0x05D0, 0x2, 0x0 },
-	{ 0xB928, 0x0, 0x0 },
-	{ 0x0748, 0x2, 0x0 },
-	{ 0xE828, 0x0, 0x0 },
+	{ 0x05D0, 0x2, 0xB928 },
+	{ 0x0748, 0x2, 0xE828 },
 
-	{ 0x0800, 0x2, 0x0 },
-	{ 0xFF28, 0x0, 0x0 }
+	{ 0x0800, 0x2, 0xFF28 },
 };
-static const int at3plusHeaderMapSize = sizeof(at3plusHeaderMap) / (sizeof(u16)* 3);
 
 static bool initAT3Decoder(Atrac *atrac, u8 *at3Header, u32 dataSize = 0xffb4a8) {
-	for (int i = 0; i < at3HeaderMapSize; i ++) {
-		if (at3HeaderMap[i][0] == atrac->atracBytesPerFrame && at3HeaderMap[i][1] == atrac->atracChannels) {
-			*(u32*)(at3Header + 0x04) = dataSize + sizeof(at3HeaderTemplate) - 8;
-			*(u16*)(at3Header + 0x16) = atrac->atracChannels;
-			*(u16*)(at3Header + 0x20) = atrac->atracBytesPerFrame;
+	for (size_t i = 0; i < ARRAY_SIZE(at3HeaderMap); ++i) {
+		if (at3HeaderMap[i].Matches(atrac)) {
+			*(u32 *)(at3Header + 0x04) = dataSize + sizeof(at3HeaderTemplate) - 8;
+			*(u16 *)(at3Header + 0x16) = atrac->atracChannels;
+			*(u16 *)(at3Header + 0x20) = atrac->atracBytesPerFrame;
 			atrac->atracBitrate = ( atrac->atracBytesPerFrame * 352800 ) / 1000;
 			atrac->atracBitrate = (atrac->atracBitrate + 511) >> 10;
-			*(u32*)(at3Header + 0x1c) = atrac->atracBitrate * 1000 / 8;
-			at3Header[0x29] = (u8)at3HeaderMap[i][2];
-			at3Header[0x2c] = (u8)at3HeaderMap[i][3];
-			at3Header[0x2e] = (u8)at3HeaderMap[i][3];
-			*(u32*)(at3Header + sizeof(at3HeaderTemplate) - 4) = dataSize;
+			*(u32 *)(at3Header + 0x1c) = atrac->atracBitrate * 1000 / 8;
+			at3Header[0x29] = at3HeaderMap[i].headerVal1;
+			at3Header[0x2c] = at3HeaderMap[i].headerVal2;
+			at3Header[0x2e] = at3HeaderMap[i].headerVal2;
+			*(u32 *)(at3Header + sizeof(at3HeaderTemplate) - 4) = dataSize;
 			return true;
 		}
 	}
@@ -2010,16 +2082,16 @@ static bool initAT3Decoder(Atrac *atrac, u8 *at3Header, u32 dataSize = 0xffb4a8)
 }
 
 static bool initAT3plusDecoder(Atrac *atrac, u8 *at3plusHeader, u32 dataSize = 0xffb4a8) {
-	for (int i = 0; i < at3plusHeaderMapSize; i += 2) {
-		if (at3plusHeaderMap[i][0] == atrac->atracBytesPerFrame && at3plusHeaderMap[i][1] == atrac->atracChannels) {
-			*(u32*)(at3plusHeader + 0x04) = dataSize + sizeof(at3plusHeaderTemplate) - 8;
-			*(u16*)(at3plusHeader + 0x16) = atrac->atracChannels;
-			*(u16*)(at3plusHeader + 0x20) = atrac->atracBytesPerFrame;
+	for (size_t i = 0; i < ARRAY_SIZE(at3plusHeaderMap); ++i) {
+		if (at3plusHeaderMap[i].Matches(atrac)) {
+			*(u32 *)(at3plusHeader + 0x04) = dataSize + sizeof(at3plusHeaderTemplate) - 8;
+			*(u16 *)(at3plusHeader + 0x16) = atrac->atracChannels;
+			*(u16 *)(at3plusHeader + 0x20) = atrac->atracBytesPerFrame;
 			atrac->atracBitrate = ( atrac->atracBytesPerFrame * 352800 ) / 1000;
 			atrac->atracBitrate = ((atrac->atracBitrate >> 11) + 8) & 0xFFFFFFF0;
-			*(u32*)(at3plusHeader + 0x1c) = atrac->atracBitrate * 1000 / 8;
-			*(u16*)(at3plusHeader + 0x3e) = at3plusHeaderMap[i + 1][0];
-			*(u32*)(at3plusHeader + sizeof(at3plusHeaderTemplate) - 4) = dataSize;
+			*(u32 *)(at3plusHeader + 0x1c) = atrac->atracBitrate * 1000 / 8;
+			*(u16 *)(at3plusHeader + 0x3e) = at3plusHeaderMap[i].headerVal;
+			*(u32 *)(at3plusHeader + sizeof(at3plusHeaderTemplate) - 4) = dataSize;
 			return true;
 		}
 	}
@@ -2113,16 +2185,14 @@ static int sceAtracLowLevelDecode(int atracID, u32 sourceAddr, u32 sourceBytesCo
 		if (sourcebytes > 0) {
 			Memory::Memcpy(atrac->data_buf + atrac->first.size, sourceAddr, sourcebytes);
 			CBreakPoints::ExecMemCheck(sourceAddr, false, sourcebytes, currentMIPS->pc);
-			if (atrac->decodePos >= atrac->first.size) {
-				atrac->decodePos = atrac->first.size;
+			if (atrac->bufferPos >= atrac->first.size) {
+				atrac->bufferPos = atrac->first.size;
 			}
 			atrac->first.size += sourcebytes;
 		}
 
 		int numSamples = 0;
-		int forceseekSample = 0x200000;
-		atrac->SeekToSample(forceseekSample);
-		atrac->SeekToSample(atrac->currentSample);
+		atrac->ForceSeekToSample(atrac->currentSample);
 
 		if (!atrac->failedDecode) {
 			AtracDecodeResult res;
@@ -2143,21 +2213,19 @@ static int sceAtracLowLevelDecode(int atracID, u32 sourceAddr, u32 sourceBytesCo
 					if (avret < 0) {
 						ERROR_LOG(ME, "swr_convert: Error while converting %d", avret);
 					}
-				}
-				if (res == ATDECODE_GOTFRAME)
 					break;
+				}
 			}
 		}
 
 		atrac->currentSample += numSamples;
 		numSamples = (atrac->codecType == PSP_MODE_AT_3_PLUS ? ATRAC3PLUS_MAX_SAMPLES : ATRAC3_MAX_SAMPLES);
 		Memory::Write_U32(numSamples * sizeof(s16) * atrac->atracOutputChannels, sampleBytesAddr);
-		atrac->SeekToSample(atrac->currentSample);
 
-		if (atrac->decodePos >= atrac->first.size) {
+		if (atrac->bufferPos >= atrac->first.size) {
 			atrac->first.writableBytes = atrac->atracBytesPerFrame;
 			atrac->first.size = atrac->firstSampleoffset;
-			atrac->currentSample = 0;
+			atrac->ForceSeekToSample(0);
 		}
 		else
 			atrac->first.writableBytes = 0;
@@ -2196,44 +2264,44 @@ static int sceAtracSetAA3HalfwayBufferAndGetID(u32 halfBuffer, u32 readSize, u32
 }
 
 const HLEFunction sceAtrac3plus[] = {
-	{0x7db31251,WrapU_IU<sceAtracAddStreamData>,"sceAtracAddStreamData"},
-	{0x6a8c3cd5,WrapU_IUUUU<sceAtracDecodeData>,"sceAtracDecodeData"},
-	{0xd5c28cc0,WrapU_V<sceAtracEndEntry>,"sceAtracEndEntry"},
-	{0x780f88d1,WrapU_I<sceAtracGetAtracID>,"sceAtracGetAtracID"},
-	{0xca3ca3d2,WrapU_IIU<sceAtracGetBufferInfoForResetting>,"sceAtracGetBufferInfoForReseting"},
-	{0xa554a158,WrapU_IU<sceAtracGetBitrate>,"sceAtracGetBitrate"},
-	{0x31668baa,WrapU_IU<sceAtracGetChannel>,"sceAtracGetChannel"},
-	{0xfaa4f89b,WrapU_IUU<sceAtracGetLoopStatus>,"sceAtracGetLoopStatus"},
-	{0xe88f759b,WrapU_IU<sceAtracGetInternalErrorInfo>,"sceAtracGetInternalErrorInfo"},
-	{0xd6a5f2f7,WrapU_IU<sceAtracGetMaxSample>,"sceAtracGetMaxSample"},
-	{0xe23e3a35,WrapU_IU<sceAtracGetNextDecodePosition>,"sceAtracGetNextDecodePosition"},
-	{0x36faabfb,WrapU_IU<sceAtracGetNextSample>,"sceAtracGetNextSample"},
-	{0x9ae849a7,WrapU_IU<sceAtracGetRemainFrame>,"sceAtracGetRemainFrame"},
-	{0x83e85ea0,WrapU_IUU<sceAtracGetSecondBufferInfo>,"sceAtracGetSecondBufferInfo"},
-	{0xa2bba8be,WrapU_IUUU<sceAtracGetSoundSample>,"sceAtracGetSoundSample"},
-	{0x5d268707,WrapU_IUUU<sceAtracGetStreamDataInfo>,"sceAtracGetStreamDataInfo"},
-	{0x61eb33f5,WrapU_I<sceAtracReleaseAtracID>,"sceAtracReleaseAtracID"},
-	{0x644e5607,WrapU_IIII<sceAtracResetPlayPosition>,"sceAtracResetPlayPosition"},
-	{0x3f6e26b5,WrapU_IUUU<sceAtracSetHalfwayBuffer>,"sceAtracSetHalfwayBuffer"},
-	{0x83bf7afd,WrapU_IUU<sceAtracSetSecondBuffer>,"sceAtracSetSecondBuffer"},
-	{0x0E2A73AB,WrapU_IUU<sceAtracSetData>,"sceAtracSetData"}, //?
-	{0x7a20e7af,WrapI_UI<sceAtracSetDataAndGetID>,"sceAtracSetDataAndGetID"},
-	{0xd1f59fdb,WrapU_V<sceAtracStartEntry>,"sceAtracStartEntry"},
-	{0x868120b5,WrapU_II<sceAtracSetLoopNum>,"sceAtracSetLoopNum"},
-	{0x132f1eca,WrapI_II<sceAtracReinit>,"sceAtracReinit"},
-	{0xeca32a99,WrapI_I<sceAtracIsSecondBufferNeeded>,"sceAtracIsSecondBufferNeeded"},
-	{0x0fae370e,WrapI_UUU<sceAtracSetHalfwayBufferAndGetID>,"sceAtracSetHalfwayBufferAndGetID"},
-	{0x2DD3E298,WrapU_IIU<sceAtracGetBufferInfoForResetting>,"sceAtracGetBufferInfoForResetting"},
-	{0x5CF9D852,WrapI_IUUU<sceAtracSetMOutHalfwayBuffer>,"sceAtracSetMOutHalfwayBuffer"},
-	{0xF6837A1A,WrapU_IUU<sceAtracSetMOutData>,"sceAtracSetMOutData"},
-	{0x472E3825,WrapI_UU<sceAtracSetMOutDataAndGetID>,"sceAtracSetMOutDataAndGetID"},
-	{0x9CD7DE03,WrapI_UUU<sceAtracSetMOutHalfwayBufferAndGetID>,"sceAtracSetMOutHalfwayBufferAndGetID"},
-	{0xB3B5D042,WrapI_IU<sceAtracGetOutputChannel>,"sceAtracGetOutputChannel"},
-	{0x5622B7C1,WrapI_UUUU<sceAtracSetAA3DataAndGetID>,"sceAtracSetAA3DataAndGetID"},
-	{0x5DD66588,WrapI_UUUU<sceAtracSetAA3HalfwayBufferAndGetID>,"sceAtracSetAA3HalfwayBufferAndGetID"},
-	{0x231FC6B7,WrapI_I<_sceAtracGetContextAddress>,"_sceAtracGetContextAddress"},
-	{0x1575D64B,WrapI_IU<sceAtracLowLevelInitDecoder>,"sceAtracLowLevelInitDecoder"},
-	{0x0C116E1B,WrapI_IUUUU<sceAtracLowLevelDecode>,"sceAtracLowLevelDecode"},
+	{0X7DB31251, &WrapU_IU<sceAtracAddStreamData>,                 "sceAtracAddStreamData",                'x', "ix"   },
+	{0X6A8C3CD5, &WrapU_IUUUU<sceAtracDecodeData>,                 "sceAtracDecodeData",                   'x', "ixxxx"},
+	{0XD5C28CC0, &WrapU_V<sceAtracEndEntry>,                       "sceAtracEndEntry",                     'x', ""     },
+	{0X780F88D1, &WrapU_I<sceAtracGetAtracID>,                     "sceAtracGetAtracID",                   'x', "i"    },
+	{0XCA3CA3D2, &WrapU_IIU<sceAtracGetBufferInfoForResetting>,    "sceAtracGetBufferInfoForReseting",     'x', "iix"  },
+	{0XA554A158, &WrapU_IU<sceAtracGetBitrate>,                    "sceAtracGetBitrate",                   'x', "ix"   },
+	{0X31668BAA, &WrapU_IU<sceAtracGetChannel>,                    "sceAtracGetChannel",                   'x', "ix"   },
+	{0XFAA4F89B, &WrapU_IUU<sceAtracGetLoopStatus>,                "sceAtracGetLoopStatus",                'x', "ixx"  },
+	{0XE88F759B, &WrapU_IU<sceAtracGetInternalErrorInfo>,          "sceAtracGetInternalErrorInfo",         'x', "ix"   },
+	{0XD6A5F2F7, &WrapU_IU<sceAtracGetMaxSample>,                  "sceAtracGetMaxSample",                 'x', "ix"   },
+	{0XE23E3A35, &WrapU_IU<sceAtracGetNextDecodePosition>,         "sceAtracGetNextDecodePosition",        'x', "ix"   },
+	{0X36FAABFB, &WrapU_IU<sceAtracGetNextSample>,                 "sceAtracGetNextSample",                'x', "ix"   },
+	{0X9AE849A7, &WrapU_IU<sceAtracGetRemainFrame>,                "sceAtracGetRemainFrame",               'x', "ix"   },
+	{0X83E85EA0, &WrapU_IUU<sceAtracGetSecondBufferInfo>,          "sceAtracGetSecondBufferInfo",          'x', "ixx"  },
+	{0XA2BBA8BE, &WrapU_IUUU<sceAtracGetSoundSample>,              "sceAtracGetSoundSample",               'x', "ixxx" },
+	{0X5D268707, &WrapU_IUUU<sceAtracGetStreamDataInfo>,           "sceAtracGetStreamDataInfo",            'x', "ixxx" },
+	{0X61EB33F5, &WrapU_I<sceAtracReleaseAtracID>,                 "sceAtracReleaseAtracID",               'x', "i"    },
+	{0X644E5607, &WrapU_IIII<sceAtracResetPlayPosition>,           "sceAtracResetPlayPosition",            'x', "iiii" },
+	{0X3F6E26B5, &WrapU_IUUU<sceAtracSetHalfwayBuffer>,            "sceAtracSetHalfwayBuffer",             'x', "ixxx" },
+	{0X83BF7AFD, &WrapU_IUU<sceAtracSetSecondBuffer>,              "sceAtracSetSecondBuffer",              'x', "ixx"  },
+	{0X0E2A73AB, &WrapU_IUU<sceAtracSetData>,                      "sceAtracSetData",                      'x', "ixx"  },
+	{0X7A20E7AF, &WrapI_UI<sceAtracSetDataAndGetID>,               "sceAtracSetDataAndGetID",              'i', "xi"   },
+	{0XD1F59FDB, &WrapU_V<sceAtracStartEntry>,                     "sceAtracStartEntry",                   'x', ""     },
+	{0X868120B5, &WrapU_II<sceAtracSetLoopNum>,                    "sceAtracSetLoopNum",                   'x', "ii"   },
+	{0X132F1ECA, &WrapI_II<sceAtracReinit>,                        "sceAtracReinit",                       'i', "ii"   },
+	{0XECA32A99, &WrapI_I<sceAtracIsSecondBufferNeeded>,           "sceAtracIsSecondBufferNeeded",         'i', "i"    },
+	{0X0FAE370E, &WrapI_UUU<sceAtracSetHalfwayBufferAndGetID>,     "sceAtracSetHalfwayBufferAndGetID",     'i', "xxx"  },
+	{0X2DD3E298, &WrapU_IIU<sceAtracGetBufferInfoForResetting>,    "sceAtracGetBufferInfoForResetting",    'x', "iix"  },
+	{0X5CF9D852, &WrapI_IUUU<sceAtracSetMOutHalfwayBuffer>,        "sceAtracSetMOutHalfwayBuffer",         'i', "ixxx" },
+	{0XF6837A1A, &WrapU_IUU<sceAtracSetMOutData>,                  "sceAtracSetMOutData",                  'x', "ixx"  },
+	{0X472E3825, &WrapI_UU<sceAtracSetMOutDataAndGetID>,           "sceAtracSetMOutDataAndGetID",          'i', "xx"   },
+	{0X9CD7DE03, &WrapI_UUU<sceAtracSetMOutHalfwayBufferAndGetID>, "sceAtracSetMOutHalfwayBufferAndGetID", 'i', "xxx"  },
+	{0XB3B5D042, &WrapI_IU<sceAtracGetOutputChannel>,              "sceAtracGetOutputChannel",             'i', "ix"   },
+	{0X5622B7C1, &WrapI_UUUU<sceAtracSetAA3DataAndGetID>,          "sceAtracSetAA3DataAndGetID",           'i', "xxxx" },
+	{0X5DD66588, &WrapI_UUUU<sceAtracSetAA3HalfwayBufferAndGetID>, "sceAtracSetAA3HalfwayBufferAndGetID",  'i', "xxxx" },
+	{0X231FC6B7, &WrapI_I<_sceAtracGetContextAddress>,             "_sceAtracGetContextAddress",           'i', "i"    },
+	{0X1575D64B, &WrapI_IU<sceAtracLowLevelInitDecoder>,           "sceAtracLowLevelInitDecoder",          'i', "ix"   },
+	{0X0C116E1B, &WrapI_IUUUU<sceAtracLowLevelDecode>,             "sceAtracLowLevelDecode",               'i', "ixxxx"},
 };
 
 void Register_sceAtrac3plus() {

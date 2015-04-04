@@ -51,6 +51,7 @@
 
 #include "GPU/GPUState.h"
 #include "GPU/GPUInterface.h"
+#include "GPU/Common/FramebufferCommon.h"
 
 struct FrameBufferState {
 	u32 topaddr;
@@ -186,6 +187,7 @@ void __DisplayInit() {
 	framebuf.topaddr = 0x04000000;
 	framebuf.pspFramebufFormat = GE_FORMAT_8888;
 	framebuf.pspFramebufLinesize = 480; // ??
+	memset(&latchedFramebuf, 0, sizeof(latchedFramebuf));
 	lastFlipCycles = 0;
 	lastFlipsTooFrequent = 0;
 	wasPaused = false;
@@ -199,6 +201,7 @@ void __DisplayInit() {
 
 	CoreTiming::ScheduleEvent(msToCycles(frameMs - vblankMs), enterVblankEvent, 0);
 	isVblank = 0;
+	frameStartTicks = 0;
 	vCount = 0;
 	hCountBase = 0;
 	curFrameTime = 0.0;
@@ -527,6 +530,7 @@ static void DoFrameTiming(bool &throttle, bool &skipFrame, float timestep) {
 	curFrameTime = time_now_d();
 	
 	// Auto-frameskip automatically if speed limit is set differently than the default.
+	bool useAutoFrameskip = g_Config.bAutoFrameSkip && g_Config.iRenderingMode != FB_NON_BUFFERED_MODE;
 	if (g_Config.bAutoFrameSkip || (g_Config.iFrameSkip == 0 && fpsLimiter == FPS_LIMIT_CUSTOM && g_Config.iFpsLimit > 60)) {
 		// autoframeskip
 		// Argh, we are falling behind! Let's skip a frame and see if we catch up.
@@ -866,18 +870,34 @@ static u32 sceDisplayGetFramebuf(u32 topaddrPtr, u32 linesizePtr, u32 pixelForma
 	return 0;
 }
 
+static void DisplayWaitForVblanks(const char *reason, int vblanks, bool callbacks = false) {
+	const s64 ticksIntoFrame = CoreTiming::GetTicks() - frameStartTicks;
+	const s64 cyclesToNextVblank = msToCycles(frameMs) - ticksIntoFrame;
+
+	// These syscalls take about 115 us, so if the next vblank is before then, we're waiting extra.
+	// At least, on real firmware a wait >= 16500 into the frame will wait two.
+	if (cyclesToNextVblank <= usToCycles(115)) {
+		++vblanks;
+	}
+
+	vblankWaitingThreads.push_back(WaitVBlankInfo(__KernelGetCurThread(), vblanks));
+	__KernelWaitCurThread(WAITTYPE_VBLANK, 1, 0, 0, callbacks, reason);
+}
+
+static void DisplayWaitForVblanksCB(const char *reason, int vblanks) {
+	DisplayWaitForVblanks(reason, vblanks, true);
+}
+
 static u32 sceDisplayWaitVblankStart() {
 	VERBOSE_LOG(SCEDISPLAY,"sceDisplayWaitVblankStart()");
-	vblankWaitingThreads.push_back(WaitVBlankInfo(__KernelGetCurThread()));
-	__KernelWaitCurThread(WAITTYPE_VBLANK, 1, 0, 0, false, "vblank start waited");
+	DisplayWaitForVblanks("vblank start waited", 1);
 	return 0;
 }
 
 static u32 sceDisplayWaitVblank() {
 	if (!isVblank) {
 		VERBOSE_LOG(SCEDISPLAY,"sceDisplayWaitVblank()");
-		vblankWaitingThreads.push_back(WaitVBlankInfo(__KernelGetCurThread()));
-		__KernelWaitCurThread(WAITTYPE_VBLANK, 1, 0, 0, false, "vblank waited");
+		DisplayWaitForVblanks("vblank waited", 1);
 		return 0;
 	} else {
 		DEBUG_LOG(SCEDISPLAY,"sceDisplayWaitVblank() - not waiting since in vBlank");
@@ -897,16 +917,15 @@ static u32 sceDisplayWaitVblankStartMulti(int vblanks) {
 		return SCE_KERNEL_ERROR_CAN_NOT_WAIT;
 	if (__IsInInterrupt())
 		return SCE_KERNEL_ERROR_ILLEGAL_CONTEXT;
-	vblankWaitingThreads.push_back(WaitVBlankInfo(__KernelGetCurThread(), vblanks));
-	__KernelWaitCurThread(WAITTYPE_VBLANK, 1, 0, 0, false, "vblank start multi waited");
+
+	DisplayWaitForVblanks("vblank start multi waited", vblanks);
 	return 0;
 }
 
 static u32 sceDisplayWaitVblankCB() {
 	if (!isVblank) {
 		VERBOSE_LOG(SCEDISPLAY,"sceDisplayWaitVblankCB()");
-		vblankWaitingThreads.push_back(WaitVBlankInfo(__KernelGetCurThread()));
-		__KernelWaitCurThread(WAITTYPE_VBLANK, 1, 0, 0, true, "vblank waited");
+		DisplayWaitForVblanksCB("vblank waited", 1);
 		return 0;
 	} else {
 		DEBUG_LOG(SCEDISPLAY,"sceDisplayWaitVblankCB() - not waiting since in vBlank");
@@ -918,8 +937,7 @@ static u32 sceDisplayWaitVblankCB() {
 
 static u32 sceDisplayWaitVblankStartCB() {
 	VERBOSE_LOG(SCEDISPLAY,"sceDisplayWaitVblankStartCB()");
-	vblankWaitingThreads.push_back(WaitVBlankInfo(__KernelGetCurThread()));
-	__KernelWaitCurThread(WAITTYPE_VBLANK, 1, 0, 0, true, "vblank start waited");
+	DisplayWaitForVblanksCB("vblank start waited", 1);
 	return 0;
 }
 
@@ -933,8 +951,8 @@ static u32 sceDisplayWaitVblankStartMultiCB(int vblanks) {
 		return SCE_KERNEL_ERROR_CAN_NOT_WAIT;
 	if (__IsInInterrupt())
 		return SCE_KERNEL_ERROR_ILLEGAL_CONTEXT;
-	vblankWaitingThreads.push_back(WaitVBlankInfo(__KernelGetCurThread(), vblanks));
-	__KernelWaitCurThread(WAITTYPE_VBLANK, 1, 0, 0, true, "vblank start multi waited");
+
+	DisplayWaitForVblanksCB("vblank start multi waited", vblanks);
 	return 0;
 }
 
@@ -1051,29 +1069,29 @@ static u32 sceDisplaySetHoldMode(u32 hMode) {
 }
 
 const HLEFunction sceDisplay[] = {
-	{0x0E20F177,WrapU_III<sceDisplaySetMode>, "sceDisplaySetMode"},
-	{0x289D82FE,WrapU_UIII<sceDisplaySetFramebuf>, "sceDisplaySetFrameBuf"},
-	{0xEEDA2E54,WrapU_UUUI<sceDisplayGetFramebuf>,"sceDisplayGetFrameBuf"},
-	{0x36CDFADE,WrapU_V<sceDisplayWaitVblank>, "sceDisplayWaitVblank", HLE_NOT_DISPATCH_SUSPENDED},
-	{0x984C27E7,WrapU_V<sceDisplayWaitVblankStart>, "sceDisplayWaitVblankStart", HLE_NOT_IN_INTERRUPT | HLE_NOT_DISPATCH_SUSPENDED},
-	{0x40f1469c,WrapU_I<sceDisplayWaitVblankStartMulti>, "sceDisplayWaitVblankStartMulti"},
-	{0x8EB9EC49,WrapU_V<sceDisplayWaitVblankCB>, "sceDisplayWaitVblankCB", HLE_NOT_DISPATCH_SUSPENDED},
-	{0x46F186C3,WrapU_V<sceDisplayWaitVblankStartCB>, "sceDisplayWaitVblankStartCB", HLE_NOT_IN_INTERRUPT | HLE_NOT_DISPATCH_SUSPENDED},
-	{0x77ed8b3a,WrapU_I<sceDisplayWaitVblankStartMultiCB>,"sceDisplayWaitVblankStartMultiCB"},
-	{0xdba6c4c4,WrapF_V<sceDisplayGetFramePerSec>,"sceDisplayGetFramePerSec"},
-	{0x773dd3a3,WrapU_V<sceDisplayGetCurrentHcount>,"sceDisplayGetCurrentHcount"},
-	{0x210eab3a,WrapI_V<sceDisplayGetAccumulatedHcount>,"sceDisplayGetAccumulatedHcount"},
-	{0xA83EF139,WrapI_I<sceDisplayAdjustAccumulatedHcount>,"sceDisplayAdjustAccumulatedHcount"},
-	{0x9C6EAAD7,WrapU_V<sceDisplayGetVcount>,"sceDisplayGetVcount"},
-	{0xDEA197D4,WrapU_UUU<sceDisplayGetMode>,"sceDisplayGetMode"},
-	{0x7ED59BC4,WrapU_U<sceDisplaySetHoldMode>,"sceDisplaySetHoldMode"},
-	{0xA544C486,WrapU_U<sceDisplaySetResumeMode>,"sceDisplaySetResumeMode"},
-	{0xBF79F646,WrapU_U<sceDisplayGetResumeMode>,"sceDisplayGetResumeMode"},
-	{0xB4F378FA,WrapU_V<sceDisplayIsForeground>,"sceDisplayIsForeground"},
-	{0x31C4BAA8,WrapU_U<sceDisplayGetBrightness>,"sceDisplayGetBrightness"},
-	{0x9E3C6DC6,WrapU_U<sceDisplaySetBrightness>,"sceDisplaySetBrightness"},
-	{0x4D4E10EC,WrapU_V<sceDisplayIsVblank>,"sceDisplayIsVblank"},
-	{0x21038913,WrapU_V<sceDisplayIsVsync>,"sceDisplayIsVsync"},
+	{0X0E20F177, &WrapU_III<sceDisplaySetMode>,               "sceDisplaySetMode",                 'x', "iii" },
+	{0X289D82FE, &WrapU_UIII<sceDisplaySetFramebuf>,          "sceDisplaySetFrameBuf",             'x', "xiii"},
+	{0XEEDA2E54, &WrapU_UUUI<sceDisplayGetFramebuf>,          "sceDisplayGetFrameBuf",             'x', "xxxi"},
+	{0X36CDFADE, &WrapU_V<sceDisplayWaitVblank>,              "sceDisplayWaitVblank",              'x', "",   HLE_NOT_DISPATCH_SUSPENDED },
+	{0X984C27E7, &WrapU_V<sceDisplayWaitVblankStart>,         "sceDisplayWaitVblankStart",         'x', "",   HLE_NOT_IN_INTERRUPT | HLE_NOT_DISPATCH_SUSPENDED },
+	{0X40F1469C, &WrapU_I<sceDisplayWaitVblankStartMulti>,    "sceDisplayWaitVblankStartMulti",    'x', "i"   },
+	{0X8EB9EC49, &WrapU_V<sceDisplayWaitVblankCB>,            "sceDisplayWaitVblankCB",            'x', "",   HLE_NOT_DISPATCH_SUSPENDED },
+	{0X46F186C3, &WrapU_V<sceDisplayWaitVblankStartCB>,       "sceDisplayWaitVblankStartCB",       'x', "",   HLE_NOT_IN_INTERRUPT | HLE_NOT_DISPATCH_SUSPENDED },
+	{0X77ED8B3A, &WrapU_I<sceDisplayWaitVblankStartMultiCB>,  "sceDisplayWaitVblankStartMultiCB",  'x', "i"   },
+	{0XDBA6C4C4, &WrapF_V<sceDisplayGetFramePerSec>,          "sceDisplayGetFramePerSec",          'f', ""    },
+	{0X773DD3A3, &WrapU_V<sceDisplayGetCurrentHcount>,        "sceDisplayGetCurrentHcount",        'x', ""    },
+	{0X210EAB3A, &WrapI_V<sceDisplayGetAccumulatedHcount>,    "sceDisplayGetAccumulatedHcount",    'i', ""    },
+	{0XA83EF139, &WrapI_I<sceDisplayAdjustAccumulatedHcount>, "sceDisplayAdjustAccumulatedHcount", 'i', "i"   },
+	{0X9C6EAAD7, &WrapU_V<sceDisplayGetVcount>,               "sceDisplayGetVcount",               'x', ""    },
+	{0XDEA197D4, &WrapU_UUU<sceDisplayGetMode>,               "sceDisplayGetMode",                 'x', "xxx" },
+	{0X7ED59BC4, &WrapU_U<sceDisplaySetHoldMode>,             "sceDisplaySetHoldMode",             'x', "x"   },
+	{0XA544C486, &WrapU_U<sceDisplaySetResumeMode>,           "sceDisplaySetResumeMode",           'x', "x"   },
+	{0XBF79F646, &WrapU_U<sceDisplayGetResumeMode>,           "sceDisplayGetResumeMode",           'x', "x"   },
+	{0XB4F378FA, &WrapU_V<sceDisplayIsForeground>,            "sceDisplayIsForeground",            'x', ""    },
+	{0X31C4BAA8, &WrapU_U<sceDisplayGetBrightness>,           "sceDisplayGetBrightness",           'x', "x"   },
+	{0X9E3C6DC6, &WrapU_U<sceDisplaySetBrightness>,           "sceDisplaySetBrightness",           'x', "x"   },
+	{0X4D4E10EC, &WrapU_V<sceDisplayIsVblank>,                "sceDisplayIsVblank",                'x', ""    },
+	{0X21038913, &WrapU_V<sceDisplayIsVsync>,                 "sceDisplayIsVsync",                 'x', ""    },
 };
 
 void Register_sceDisplay() {

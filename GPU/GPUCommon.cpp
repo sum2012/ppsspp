@@ -533,6 +533,8 @@ bool GPUCommon::InterpretList(DisplayList &list) {
 		}
 	}
 
+	FinishDeferred();
+
 	// We haven't run the op at list.pc, so it shouldn't count.
 	if (cycleLastPC != list.pc) {
 		UpdatePC(list.pc - 4, list.pc);
@@ -570,7 +572,7 @@ void GPUCommon::SlowRunLoop(DisplayList &list)
 				prev = 0;
 			}
 			GeDisassembleOp(list.pc, op, prev, temp, 256);
-			NOTICE_LOG(G3D, "%s", temp);
+			NOTICE_LOG(G3D, "%08x: %s", op, temp);
 		}
 		gstate.cmdmem[cmd] = op;
 

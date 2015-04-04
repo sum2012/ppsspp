@@ -53,6 +53,7 @@
 #include <shlobj.h>
 #include "util/text/utf8.h"
 #include "Windows/W32Util/ShellUtil.h"
+#include "Windows/W32Util/Misc.h"
 using namespace std;
 
 #endif
@@ -75,7 +76,6 @@ void GameSettingsScreen::CreateViews() {
 
 	if (bEditThenRestore)
 	{
-		g_Config.changeGameSpecific(gameID_);
 		g_Config.loadGameConfig(gameID_);
 	}
 
@@ -184,7 +184,9 @@ void GameSettingsScreen::CreateViews() {
 
 #ifdef ANDROID
 	static const char *deviceResolutions[] = { "Native device resolution", "Auto (same as Rendering)", "1x PSP", "2x PSP", "3x PSP", "4x PSP", "5x PSP" };
-	UI::PopupMultiChoice *hwscale = graphicsSettings->Add(new PopupMultiChoice(&g_Config.iAndroidHwScale, gs->T("Display Resolution (HW scaler)"), deviceResolutions, 0, ARRAY_SIZE(deviceResolutions), gs, screenManager()));
+	int max_res_temp = std::max(System_GetPropertyInt(SYSPROP_DISPLAY_XRES), System_GetPropertyInt(SYSPROP_DISPLAY_YRES)) / 480 + 2;
+	int max_res = std::min(max_res_temp, (int)ARRAY_SIZE(deviceResolutions));
+	UI::PopupMultiChoice *hwscale = graphicsSettings->Add(new PopupMultiChoice(&g_Config.iAndroidHwScale, gs->T("Display Resolution (HW scaler)"), deviceResolutions, 0, max_res, gs, screenManager()));
 	hwscale->OnChoice.Handle(this, &GameSettingsScreen::OnHwScaleChange);  // To refresh the display mode
 #endif
 
@@ -339,14 +341,21 @@ void GameSettingsScreen::CreateViews() {
 	audioSettings->Add(new CheckBox(&g_Config.bEnableSound, a->T("Enable Sound")));
 
 #ifdef _WIN32
-	static const char *backend[] = { "Auto", "WASAPI (fast)", "DirectSound (compatible)" };
-	PopupMultiChoice *audioBackend = audioSettings->Add(new PopupMultiChoice(&g_Config.iAudioBackend, a->T("Audio backend"), backend, 0, ARRAY_SIZE(backend), a, screenManager()));
-	audioBackend->SetEnabledPtr(&g_Config.bEnableSound);
+	if (IsVistaOrHigher()) {
+		static const char *backend[] = { "Auto", "DSound (compatible)", "WASAPI (fast)" };
+		PopupMultiChoice *audioBackend = audioSettings->Add(new PopupMultiChoice(&g_Config.iAudioBackend, a->T("Audio backend", "Audio backend (restart req.)"), backend, 0, ARRAY_SIZE(backend), a, screenManager()));
+		audioBackend->SetEnabledPtr(&g_Config.bEnableSound);
+	}
 #endif
 
 	static const char *latency[] = { "Low", "Medium", "High" };
 	PopupMultiChoice *lowAudio = audioSettings->Add(new PopupMultiChoice(&g_Config.iAudioLatency, a->T("Audio Latency"), latency, 0, ARRAY_SIZE(latency), gs, screenManager()));
+
 	lowAudio->SetEnabledPtr(&g_Config.bEnableSound);
+	if (System_GetPropertyInt(SYSPROP_AUDIO_SAMPLE_RATE) == 44100) {
+		CheckBox *resampling = audioSettings->Add(new CheckBox(&g_Config.bAudioResampler, a->T("Audio sync", "Audio sync (resampling)")));
+		resampling->SetEnabledPtr(&g_Config.bEnableSound);
+	}
 
 	audioSettings->Add(new ItemHeader(a->T("Audio hacks")));
 	audioSettings->Add(new CheckBox(&g_Config.bSoundSpeedHack, a->T("Sound speed hack (DOA etc.)")));
@@ -360,41 +369,69 @@ void GameSettingsScreen::CreateViews() {
 	controlsSettings->Add(new ItemHeader(ms->T("Controls")));
 	controlsSettings->Add(new Choice(c->T("Control Mapping")))->OnClick.Handle(this, &GameSettingsScreen::OnControlMapping);
 
+#if defined(USING_WIN_UI)
+	controlsSettings->Add(new CheckBox(&g_Config.bGamepadOnlyFocused, c->T("Ignore gamepads when not focused")));
+#endif
+
 #if defined(MOBILE_DEVICE)
 	controlsSettings->Add(new CheckBox(&g_Config.bHapticFeedback, c->T("HapticFeedback", "Haptic Feedback (vibration)")));
 	static const char *tiltTypes[] = { "None (Disabled)", "Analog Stick", "D-PAD", "PSP Action Buttons"};
 	controlsSettings->Add(new PopupMultiChoice(&g_Config.iTiltInputType, c->T("Tilt Input Type"), tiltTypes, 0, ARRAY_SIZE(tiltTypes), c, screenManager()))->OnClick.Handle(this, &GameSettingsScreen::OnTiltTypeChange);
 
 	Choice *customizeTilt = controlsSettings->Add(new Choice(c->T("Customize tilt")));
-	customizeTilt->OnClick.Handle(this, &GameSettingsScreen::OnTiltCuztomize);
+	customizeTilt->OnClick.Handle(this, &GameSettingsScreen::OnTiltCustomize);
 	customizeTilt->SetEnabledPtr((bool *)&g_Config.iTiltInputType); //<- dirty int-to-bool cast
 #endif
-	controlsSettings->Add(new ItemHeader(c->T("OnScreen", "On-Screen Touch Controls")));
-	controlsSettings->Add(new CheckBox(&g_Config.bShowTouchControls, c->T("OnScreen", "On-Screen Touch Controls")));
-	layoutEditorChoice_ = controlsSettings->Add(new Choice(c->T("Custom layout...")));
-	layoutEditorChoice_->OnClick.Handle(this, &GameSettingsScreen::OnTouchControlLayout);
-	layoutEditorChoice_->SetEnabledPtr(&g_Config.bShowTouchControls);
 
-	// On systems that aren't Symbian, iOS, and Maemo, offer to let the user see this button.
-	// Some Windows touch devices don't have a back button or other button to call up the menu.
+	// TVs don't have touch control, at least not yet.
+	if (System_GetPropertyInt(SYSPROP_DEVICE_TYPE) != DEVICE_TYPE_TV) {
+		controlsSettings->Add(new ItemHeader(c->T("OnScreen", "On-Screen Touch Controls")));
+		controlsSettings->Add(new CheckBox(&g_Config.bShowTouchControls, c->T("OnScreen", "On-Screen Touch Controls")));
+		layoutEditorChoice_ = controlsSettings->Add(new Choice(c->T("Custom layout...")));
+		layoutEditorChoice_->OnClick.Handle(this, &GameSettingsScreen::OnTouchControlLayout);
+		layoutEditorChoice_->SetEnabledPtr(&g_Config.bShowTouchControls);
+
+		// Re-centers itself to the touch location on touch-down.
+		CheckBox *floatingAnalog = controlsSettings->Add(new CheckBox(&g_Config.bAutoCenterTouchAnalog, c->T("Auto-centering analog stick")));
+		floatingAnalog->SetEnabledPtr(&g_Config.bShowTouchControls);
+
+		// On systems that aren't Symbian, iOS, and Maemo, offer to let the user see this button.
+		// Some Windows touch devices don't have a back button or other button to call up the menu.
 #if !defined(__SYMBIAN32__) && !defined(IOS) && !defined(MAEMO)
-	CheckBox *enablePauseBtn = controlsSettings->Add(new CheckBox(&g_Config.bShowTouchPause, c->T("Show Touch Pause Menu Button")));
+		CheckBox *enablePauseBtn = controlsSettings->Add(new CheckBox(&g_Config.bShowTouchPause, c->T("Show Touch Pause Menu Button")));
 
-	// Don't allow the user to disable it once in-game, so they can't lock themselves out of the menu.
-	if (!PSP_IsInited()) {
-		enablePauseBtn->SetEnabledPtr(&g_Config.bShowTouchControls);
-	} else {
-		enablePauseBtn->SetEnabled(false);
-	}
+		// Don't allow the user to disable it once in-game, so they can't lock themselves out of the menu.
+		if (!PSP_IsInited()) {
+			enablePauseBtn->SetEnabledPtr(&g_Config.bShowTouchControls);
+		} else {
+			enablePauseBtn->SetEnabled(false);
+		}
 #endif
 
-	CheckBox *disableDiags = controlsSettings->Add(new CheckBox(&g_Config.bDisableDpadDiagonals, c->T("Disable D-Pad diagonals (4-way touch)")));
-	disableDiags->SetEnabledPtr(&g_Config.bShowTouchControls);
-	View *opacity = controlsSettings->Add(new PopupSliderChoice(&g_Config.iTouchButtonOpacity, 0, 100, c->T("Button Opacity"), screenManager()));
-	opacity->SetEnabledPtr(&g_Config.bShowTouchControls);
-	static const char *touchControlStyles[] = {"Classic", "Thin borders"};
-	View *style = controlsSettings->Add(new PopupMultiChoice(&g_Config.iTouchButtonStyle, c->T("Button style"), touchControlStyles, 0, ARRAY_SIZE(touchControlStyles), c, screenManager()));
-	style->SetEnabledPtr(&g_Config.bShowTouchControls);
+		CheckBox *disableDiags = controlsSettings->Add(new CheckBox(&g_Config.bDisableDpadDiagonals, c->T("Disable D-Pad diagonals (4-way touch)")));
+		disableDiags->SetEnabledPtr(&g_Config.bShowTouchControls);
+		View *opacity = controlsSettings->Add(new PopupSliderChoice(&g_Config.iTouchButtonOpacity, 0, 100, c->T("Button Opacity"), screenManager()));
+		opacity->SetEnabledPtr(&g_Config.bShowTouchControls);
+		static const char *touchControlStyles[] = {"Classic", "Thin borders"};
+		View *style = controlsSettings->Add(new PopupMultiChoice(&g_Config.iTouchButtonStyle, c->T("Button style"), touchControlStyles, 0, ARRAY_SIZE(touchControlStyles), c, screenManager()));
+		style->SetEnabledPtr(&g_Config.bShowTouchControls);
+	}
+
+#ifdef _WIN32
+	static const char *inverseDeadzoneModes[] = { "Off", "X", "Y", "X + Y" };
+
+	controlsSettings->Add(new ItemHeader(c->T("DInput Analog Settings", "DInput Analog Settings")));
+	controlsSettings->Add(new PopupSliderChoiceFloat(&g_Config.fDInputAnalogDeadzone, 0.0f, 1.0f, c->T("Deadzone Radius"), screenManager()));
+	controlsSettings->Add(new PopupMultiChoice(&g_Config.iDInputAnalogInverseMode, c->T("Analog Mapper Mode"), inverseDeadzoneModes, 0, ARRAY_SIZE(inverseDeadzoneModes), c, screenManager()));
+	controlsSettings->Add(new PopupSliderChoiceFloat(&g_Config.fDInputAnalogInverseDeadzone, 0.0f, 1.0f, c->T("Analog Mapper Low End", "Analog Mapper Low End (Inverse Deadzone)"), screenManager()));
+	controlsSettings->Add(new PopupSliderChoiceFloat(&g_Config.fDInputAnalogSensitivity, 0.0f, 10.0f, c->T("Analog Mapper High End", "Analog Mapper High End (Axis Sensitivity)"), screenManager()));
+
+	controlsSettings->Add(new ItemHeader(c->T("XInput Analog Settings", "XInput Analog Settings")));
+	controlsSettings->Add(new PopupSliderChoiceFloat(&g_Config.fXInputAnalogDeadzone, 0.0f, 1.0f, c->T("Deadzone Radius"), screenManager()));
+	controlsSettings->Add(new PopupMultiChoice(&g_Config.iXInputAnalogInverseMode, c->T("Analog Mapper Mode"), inverseDeadzoneModes, 0, ARRAY_SIZE(inverseDeadzoneModes), c, screenManager()));
+	controlsSettings->Add(new PopupSliderChoiceFloat(&g_Config.fXInputAnalogInverseDeadzone, 0.0f, 1.0f, c->T("Analog Mapper Low End", "Analog Mapper Low End (Inverse Deadzone)"), screenManager()));
+	controlsSettings->Add(new PopupSliderChoiceFloat(&g_Config.fXInputAnalogSensitivity, 0.0f, 10.0f, c->T("Analog Mapper High End", "Analog Mapper High End (Axis Sensitivity)"), screenManager()));
+#endif
 
 	controlsSettings->Add(new ItemHeader(c->T("Keyboard", "Keyboard Control Settings")));
 #if defined(USING_WIN_UI)
@@ -409,6 +446,8 @@ void GameSettingsScreen::CreateViews() {
 	tabHolder->AddTab(ms->T("Networking"), networkingSettingsScroll);
 
 	networkingSettings->Add(new ItemHeader(ms->T("Networking")));
+
+	networkingSettings->Add(new Choice(n->T("Adhoc Multiplayer forum")))->OnClick.Handle(this, &GameSettingsScreen::OnAdhocGuides);
 
 	networkingSettings->Add(new CheckBox(&g_Config.bEnableWlan, n->T("Enable networking", "Enable networking/wlan (beta)")));
 
@@ -458,9 +497,11 @@ void GameSettingsScreen::CreateViews() {
 	systemSettings->Add(new ItemHeader(s->T("General")));
 
 #ifdef ANDROID
-	static const char *screenRotation[] = {"Auto", "Landscape", "Portrait", "Landscape Reversed", "Portrait Reversed"};
-	PopupMultiChoice *rot = systemSettings->Add(new PopupMultiChoice(&g_Config.iScreenRotation, c->T("Screen Rotation"), screenRotation, 0, ARRAY_SIZE(screenRotation), c, screenManager()));
-	rot->OnChoice.Handle(this, &GameSettingsScreen::OnScreenRotation);
+	if (System_GetPropertyInt(SYSPROP_DEVICE_TYPE) == DEVICE_TYPE_MOBILE) {
+		static const char *screenRotation[] = {"Auto", "Landscape", "Portrait", "Landscape Reversed", "Portrait Reversed"};
+		PopupMultiChoice *rot = systemSettings->Add(new PopupMultiChoice(&g_Config.iScreenRotation, c->T("Screen Rotation"), screenRotation, 0, ARRAY_SIZE(screenRotation), c, screenManager()));
+		rot->OnChoice.Handle(this, &GameSettingsScreen::OnScreenRotation);
+	}
 #endif
 
 	systemSettings->Add(new CheckBox(&g_Config.bCheckForNewVersion, s->T("VersionCheck", "Check for new versions of PPSSPP")));
@@ -482,7 +523,6 @@ void GameSettingsScreen::CreateViews() {
 	const HRESULT result = SHGetFolderPath(NULL, CSIDL_PERSONAL, NULL, SHGFP_TYPE_CURRENT, myDocumentsPath);
 	const std::string PPSSPPpath = File::GetExeDirectory();
 	const std::string installedFile = PPSSPPpath + "installed.txt";
-	const std::string path = File::GetExeDirectory();
 	installed_ = File::Exists(installedFile);
 	otherinstalled_ = false;
 	if (!installed_ && result == S_OK) {
@@ -553,6 +593,9 @@ UI::EventReturn GameSettingsScreen::OnAutoFrameskip(UI::EventParams &e) {
 	if (g_Config.bAutoFrameSkip && g_Config.iFrameSkip == 0) {
 		g_Config.iFrameSkip = 1;
 	}
+	if (g_Config.bAutoFrameSkip && g_Config.iRenderingMode == FB_NON_BUFFERED_MODE) {
+		g_Config.iRenderingMode = FB_BUFFERED_MODE;
+	}
 	return UI::EVENT_DONE;
 }
 
@@ -583,6 +626,11 @@ static void RecreateActivity() {
 	}
 }
 
+UI::EventReturn GameSettingsScreen::OnAdhocGuides(UI::EventParams &e) {
+	LaunchBrowser("http://forums.ppsspp.org/forumdisplay.php?fid=34");
+	return UI::EVENT_DONE;
+}
+
 UI::EventReturn GameSettingsScreen::OnImmersiveModeChange(UI::EventParams &e) {
 	System_SendMessage("immersive", "");
 	const int SYSTEM_JELLYBEAN = 16;
@@ -602,6 +650,10 @@ UI::EventReturn GameSettingsScreen::OnRenderingMode(UI::EventParams &e) {
 
 	postProcEnable_ = !g_Config.bSoftwareRendering && (g_Config.iRenderingMode != FB_NON_BUFFERED_MODE);
 	resolutionEnable_ = !g_Config.bSoftwareRendering && (g_Config.iRenderingMode != FB_NON_BUFFERED_MODE);
+
+	if (g_Config.iRenderingMode == FB_NON_BUFFERED_MODE) {
+		g_Config.bAutoFrameSkip = false;
+	}
 	return UI::EVENT_DONE;
 }
 
@@ -615,10 +667,8 @@ UI::EventReturn GameSettingsScreen::OnJitAffectingSetting(UI::EventParams &e) {
 UI::EventReturn GameSettingsScreen::OnSavePathMydoc(UI::EventParams &e) {
 	const std::string PPSSPPpath = File::GetExeDirectory();
 	const std::string installedFile = PPSSPPpath + "installed.txt";
-	const std::string path = File::GetExeDirectory();
 	installed_ = File::Exists(installedFile);
 	if (otherinstalled_) {
-		const std::string PPSSPPpath = File::GetExeDirectory();
 		File::Delete(PPSSPPpath + "installed.txt");
 		File::CreateEmptyFile(PPSSPPpath + "installed.txt");
 		otherinstalled_ = false;
@@ -654,11 +704,14 @@ UI::EventReturn GameSettingsScreen::OnSavePathOther(UI::EventParams &e) {
 		I18NCategory *di = GetI18NCategory("Dialog");
 		std::string folder = W32Util::BrowseForFolder(MainWindow::GetHWND(), di->T("Choose PPSSPP save folder"));
 		if (folder.size()) {
-			ofstream myfile;
 			g_Config.memStickDirectory = folder;
-			myfile.open(PPSSPPpath + "installed.txt");
-			myfile << "\xEF\xBB\xBF" + folder;
-			myfile.close();
+			FILE *f = File::OpenCFile(PPSSPPpath + "installed.txt", "wb");
+			if (f) {
+				std::string utfstring("\xEF\xBB\xBF");
+				utfstring.append(folder);
+				fwrite(utfstring.c_str(), 1, utfstring.length(), f);
+				fclose(f);
+			}
 			installed_ = false;
 		}
 		else
@@ -899,7 +952,7 @@ UI::EventReturn GameSettingsScreen::OnTiltTypeChange(UI::EventParams &e){
 	return UI::EVENT_DONE;
 };
 
-UI::EventReturn GameSettingsScreen::OnTiltCuztomize(UI::EventParams &e){
+UI::EventReturn GameSettingsScreen::OnTiltCustomize(UI::EventParams &e){
 	screenManager()->push(new TiltAnalogSettingsScreen());
 	return UI::EVENT_DONE;
 };

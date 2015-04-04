@@ -72,6 +72,7 @@ static const int MPEG_AVC_DECODE_SUCCESS = 1;       // Internal value.
 
 static const int atracDecodeDelayMs = 3000;
 static const int avcFirstDelayMs = 3600;
+static const int avcCscDelayMs = 4000;
 static const int avcDecodeDelayMs = 5400;         // Varies between 4700 and 6000.
 static const int avcEmptyDelayMs = 320;
 static const int mpegDecodeErrorDelayMs = 100;
@@ -95,8 +96,8 @@ static bool pmp_oldStateLoaded = false; // for dostate
 #ifdef USE_FFMPEG 
 
 extern "C" {
-#include <libavformat/avformat.h>
-#include <libswscale/swscale.h>
+#include "libavformat/avformat.h"
+#include "libswscale/swscale.h"
 }
 static AVPixelFormat pmp_want_pix_fmt;
 
@@ -740,7 +741,7 @@ static void SaveFrame(AVFrame *pFrame, int width, int height)
 
 // check the existence of pmp media context 
 static bool isContextExist(u32 ctxAddr){
-	for (std::list<u32>::iterator it = pmp_ContextList.begin(); it != pmp_ContextList.end(); it++){
+	for (auto it = pmp_ContextList.begin(); it != pmp_ContextList.end(); ++it){
 		if (*it == ctxAddr){
 			return true;
 		}
@@ -1016,7 +1017,7 @@ void __VideoPmpInit() {
 void __VideoPmpShutdown() {
 #ifdef USE_FFMPEG
 	// We need to empty pmp_queue to not leak memory.
-	for (std::list<AVFrame *>::iterator it = pmp_queue.begin(); it != pmp_queue.end(); it++){
+	for (auto it = pmp_queue.begin(); it != pmp_queue.end(); ++it){
 		av_free(*it);
 	}
 	pmp_queue.clear();
@@ -1633,7 +1634,7 @@ static int sceMpegQueryPcmEsSize(u32 mpeg, u32 esSizeAddr, u32 outSizeAddr)
 		return -1;
 	}
 
-	ERROR_LOG(ME, "sceMpegQueryPcmEsSize - bad pointers(%08x, %08x, %08x)", mpeg, esSizeAddr, outSizeAddr);
+	ERROR_LOG(ME, "sceMpegQueryPcmEsSize(%08x, %08x, %08x)", mpeg, esSizeAddr, outSizeAddr);
 
 	Memory::Write_U32(MPEG_PCM_ES_SIZE, esSizeAddr);
 	Memory::Write_U32(MPEG_PCM_ES_OUTPUT_SIZE, outSizeAddr);
@@ -1646,13 +1647,20 @@ static u32 sceMpegChangeGetAuMode(u32 mpeg, int streamUid, int mode)
 	MpegContext *ctx = getMpegCtx(mpeg);
 	if (!ctx) {
 		WARN_LOG(ME, "sceMpegChangeGetAuMode(%08x, %i, %i): bad mpeg handle", mpeg, streamUid, mode);
-		return -1;
+		return ERROR_MPEG_INVALID_VALUE;
+	}
+	if (mode != MPEG_AU_MODE_DECODE && mode != MPEG_AU_MODE_SKIP) {
+		ERROR_LOG(ME, "UNIMPL sceMpegChangeGetAuMode(%08x, %i, %i): bad mode", mpeg, streamUid, mode);
+		return ERROR_MPEG_INVALID_VALUE;
 	}
 
-	// NOTE: Where is the info supposed to come from?
-	StreamInfo info = {0};
-	info.sid = streamUid;
-	if (info.sid) {
+	auto stream = ctx->streamMap.find(streamUid);
+	if (stream == ctx->streamMap.end()) {
+		ERROR_LOG(ME, "UNIMPL sceMpegChangeGetAuMode(%08x, %i, %i): unknown streamID", mpeg, streamUid, mode);
+		return ERROR_MPEG_INVALID_VALUE;
+	} else {
+		StreamInfo &info = stream->second;
+		DEBUG_LOG(ME, "UNIMPL sceMpegChangeGetAuMode(%08x, %i, %i): changing type=%d", mpeg, streamUid, mode, info.type);
 		switch (info.type) {
 		case MPEG_AVC_STREAM:
 			if (mode == MPEG_AU_MODE_DECODE) {
@@ -1677,11 +1685,9 @@ static u32 sceMpegChangeGetAuMode(u32 mpeg, int streamUid, int mode)
 			}
 			break;
 		default:
-			ERROR_LOG(ME, "UNIMPL sceMpegChangeGetAuMode(%08x, %i): unkown streamID", mpeg, streamUid);
+			ERROR_LOG(ME, "UNIMPL sceMpegChangeGetAuMode(%08x, %i, %i): unknown streamID", mpeg, streamUid, mode);
 			break;
 		}
-	} else {
-			ERROR_LOG(ME, "UNIMPL sceMpegChangeGetAuMode(%08x, %i): unkown streamID", mpeg, streamUid);
 	}
 	return 0;
 }
@@ -1699,7 +1705,7 @@ static u32 sceMpegChangeGetAvcAuMode(u32 mpeg, u32 stream_addr, int mode)
 		return -1;
 	}
 
-	ERROR_LOG(ME, "UNIMPL sceMpegChangeGetAvcAuMode(%08x, %08x, %i)", mpeg, stream_addr, mode);
+	ERROR_LOG_REPORT_ONCE(mpegChangeAvcAu, ME, "UNIMPL sceMpegChangeGetAvcAuMode(%08x, %08x, %i)", mpeg, stream_addr, mode);
 	return 0;
 }
 
@@ -1710,8 +1716,31 @@ static u32 sceMpegGetPcmAu(u32 mpeg, int streamUid, u32 auAddr, u32 attrAddr)
 		WARN_LOG(ME, "UNIMPL sceMpegGetPcmAu(%08x, %i, %08x, %08x): bad mpeg handle", mpeg, streamUid, auAddr, attrAddr);
 		return -1;
 	}
+	auto ringbuffer = PSPPointer<SceMpegRingBuffer>::Create(ctx->mpegRingbufferAddr);
+	if (!ringbuffer.IsValid()) {
+		// Would have crashed before, TODO test behavior
+		WARN_LOG(ME, "sceMpegGetPcmAu(%08x, %08x, %08x, %08x): invalid ringbuffer address", mpeg, streamUid, auAddr, attrAddr);
+		return -1;
+	}
+	if (!Memory::IsValidAddress(streamUid)) {
+		WARN_LOG(ME, "sceMpegGetPcmAu(%08x, %08x, %08x, %08x):  didn't get a fake stream", mpeg, streamUid, auAddr, attrAddr);
+		return ERROR_MPEG_INVALID_ADDR;
+	}
+	SceMpegAu atracAu;
+	atracAu.read(auAddr);
+	auto streamInfo = ctx->streamMap.find(streamUid);
+	if (streamInfo == ctx->streamMap.end()) {
+		WARN_LOG(ME, "sceMpegGetPcmAu(%08x, %08x, %08x, %08x):  bad streamUid ", mpeg, streamUid, auAddr, attrAddr);
+		return -1;
+	}
 
-	ERROR_LOG(ME, "UNIMPL sceMpegGetPcmAu(%08x, %i, %08x, %08x)", mpeg, streamUid, auAddr, attrAddr);
+	atracAu.write(auAddr);
+	u32 attr = 1 << 7; // Sampling rate (1 = 44.1kHz).
+	attr |= 2;         // Number of channels (1 - MONO / 2 - STEREO).
+	if (Memory::IsValidAddress(attrAddr))
+		Memory::Write_U32(attr, attrAddr);
+
+	ERROR_LOG_REPORT_ONCE(mpegPcmAu, ME, "UNIMPL sceMpegGetPcmAu(%08x, %i, %08x, %08x)", mpeg, streamUid, auAddr, attrAddr);
 	return 0;
 }
 
@@ -1832,10 +1861,13 @@ static u32 sceMpegAvcCsc(u32 mpeg, u32 sourceAddr, u32 rangeAddr, int frameWidth
 	int destSize = ctx->mediaengine->writeVideoImageWithRange(destAddr, frameWidth, ctx->videoPixelMode, x, y, width, height);
 
 	gpu->InvalidateCache(destAddr, destSize, GPU_INVALIDATE_SAFE);
-	// Do not hleDelayResult
+	// Do not use avcDecodeDelayMs 's value
 	// Will cause video 's screen dislocation in Bleach heat of soul 6
 	// https://github.com/hrydgard/ppsspp/issues/5535
-	return 0;
+	// If do not use DelayResult,Wil cause flickering in Dengeki no Pilot: Tenkuu no Kizuna
+	// https://github.com/hrydgard/ppsspp/issues/7549
+
+	return hleDelayResult(0, "mpeg avc csc", avcCscDelayMs);
 }
 
 static u32 sceMpegRingbufferDestruct(u32 ringbufferAddr)
@@ -1911,7 +1943,7 @@ static u32 sceMpegAvcResourceFinish(u32 mpeg)
 
 static u32 sceMpegAvcResourceGetAvcEsBuf(u32 mpeg)
 {
-	ERROR_LOG(ME, "UNIMPL sceMpegAvcResourceGetAvcEsBuf(%08x)", mpeg);
+	ERROR_LOG_REPORT_ONCE(mpegResourceEsBuf, ME, "UNIMPL sceMpegAvcResourceGetAvcEsBuf(%08x)", mpeg);
 	return 0;
 }
 
@@ -2130,65 +2162,65 @@ static u32 sceMpegFlushAu(u32 mpeg)
 
 const HLEFunction sceMpeg[] =
 {
-	{0xe1ce83a7,WrapI_UUUU<sceMpegGetAtracAu>,"sceMpegGetAtracAu"},
-	{0xfe246728,WrapI_UUUU<sceMpegGetAvcAu>,"sceMpegGetAvcAu"},
-	{0xd8c5f121,WrapU_UUUUUUU<sceMpegCreate>,"sceMpegCreate"},
-	{0xf8dcb679,WrapI_UUU<sceMpegQueryAtracEsSize>,"sceMpegQueryAtracEsSize"},
-	{0xc132e22f,WrapU_V<sceMpegQueryMemSize>,"sceMpegQueryMemSize"},
-	{0x21ff80e4,WrapI_UUU<sceMpegQueryStreamOffset>,"sceMpegQueryStreamOffset"},
-	{0x611e9e11,WrapU_UU<sceMpegQueryStreamSize>,"sceMpegQueryStreamSize"},
-	{0x42560f23,WrapI_UUU<sceMpegRegistStream>,"sceMpegRegistStream"},
-	{0x591a4aa2,WrapU_UI<sceMpegUnRegistStream>,"sceMpegUnRegistStream"},
-	{0x707b7629,WrapU_U<sceMpegFlushAllStream>,"sceMpegFlushAllStream"},
-	{0x500F0429,WrapU_UI<sceMpegFlushStream>,"sceMpegFlushStream"},
-	{0xa780cf7e,WrapI_U<sceMpegMallocAvcEsBuf>,"sceMpegMallocAvcEsBuf"},
-	{0xceb870b1,WrapI_UI<sceMpegFreeAvcEsBuf>,"sceMpegFreeAvcEsBuf"},
-	{0x167afd9e,WrapI_UUU<sceMpegInitAu>,"sceMpegInitAu"},
-	{0x682a619b,WrapU_V<sceMpegInit>,"sceMpegInit"},
-	{0x606a4649,WrapI_U<sceMpegDelete>,"sceMpegDelete"},
-	{0x874624d6,WrapU_V<sceMpegFinish>,"sceMpegFinish"},
-	{0x800c44df,WrapU_UUUI<sceMpegAtracDecode>,"sceMpegAtracDecode"},
-	{0x0e3c2e9d,&WrapU_UUUUU<sceMpegAvcDecode>,"sceMpegAvcDecode"},
-	{0x740fccd1,&WrapU_UUUU<sceMpegAvcDecodeStop>,"sceMpegAvcDecodeStop"},
-	{0x4571cc64,&WrapU_U<sceMpegAvcDecodeFlush>,"sceMpegAvcDecodeFlush"},
-	{0x0f6c18d7,&WrapI_UU<sceMpegAvcDecodeDetail>,"sceMpegAvcDecodeDetail"},
-	{0xa11c7026,WrapI_UU<sceMpegAvcDecodeMode>,"sceMpegAvcDecodeMode"},
-	{0x37295ed8,WrapU_UUUUUU<sceMpegRingbufferConstruct>,"sceMpegRingbufferConstruct"},
-	{0x13407f13,WrapU_U<sceMpegRingbufferDestruct>,"sceMpegRingbufferDestruct"},
-	{0xb240a59e,WrapU_UUU<sceMpegRingbufferPut>,"sceMpegRingbufferPut"},
-	{0xb5f6dc87,WrapI_U<sceMpegRingbufferAvailableSize>,"sceMpegRingbufferAvailableSize"},
-	{0xd7a29f46,WrapU_I<sceMpegRingbufferQueryMemSize>,"sceMpegRingbufferQueryMemSize"},
-	{0x769BEBB6,WrapI_U<sceMpegRingbufferQueryPackNum>,"sceMpegRingbufferQueryPackNum"},
-	{0x211a057c,WrapI_UUUUU<sceMpegAvcQueryYCbCrSize>,"sceMpegAvcQueryYCbCrSize"},
-	{0xf0eb1125,WrapI_UUUU<sceMpegAvcDecodeYCbCr>,"sceMpegAvcDecodeYCbCr"},
-	{0xf2930c9c,WrapU_UUU<sceMpegAvcDecodeStopYCbCr>,"sceMpegAvcDecodeStopYCbCr"},
-	{0x67179b1b,WrapU_UIIIU<sceMpegAvcInitYCbCr>,"sceMpegAvcInitYCbCr"},
-	{0x0558B075,WrapU_UUU<sceMpegAvcCopyYCbCr>,"sceMpegAvcCopyYCbCr"},
-	{0x31bd0272,WrapU_UUUIU<sceMpegAvcCsc>,"sceMpegAvcCsc"},
-	{0x9DCFB7EA,WrapU_UII<sceMpegChangeGetAuMode>,"sceMpegChangeGetAuMode"},
-	{0x8C1E027D,WrapU_UIUU<sceMpegGetPcmAu>,"sceMpegGetPcmAu"},
-	{0xC02CF6B5,WrapI_UUU<sceMpegQueryPcmEsSize>,"sceMpegQueryPcmEsSize"},
-	{0xC45C99CC,WrapU_UUU<sceMpegQueryUserdataEsSize>,"sceMpegQueryUserdataEsSize"},
-	{0x234586AE,WrapU_UUI<sceMpegChangeGetAvcAuMode>,"sceMpegChangeGetAvcAuMode"},
-	{0x63B9536A,WrapU_U<sceMpegAvcResourceGetAvcDecTopAddr>,"sceMpegAvcResourceGetAvcDecTopAddr"},
-	{0x8160a2fe,WrapU_U<sceMpegAvcResourceFinish>,"sceMpegAvcResourceFinish"},
-	{0xaf26bb01,WrapU_U<sceMpegAvcResourceGetAvcEsBuf>,"sceMpegAvcResourceGetAvcEsBuf"},
-	{0xfcbdb5ad,WrapU_U<sceMpegAvcResourceInit>,"sceMpegAvcResourceInit"},
-	{0xF5E7EA31,WrapI_UUUI<sceMpegAvcConvertToYuv420>,"sceMpegAvcConvertToYuv420"},
-	{0x01977054,WrapI_UUUU<sceMpegGetUserdataAu>,"sceMpegGetUserdataAu"},
-	{0x3c37a7a6,WrapU_UU<sceMpegNextAvcRpAu>,"sceMpegNextAvcRpAu"},
-	{0x11f95cf1,WrapU_U<sceMpegGetAvcNalAu>,"sceMpegGetAvcNalAu"},
-	{0xab0e9556,WrapU_U<sceMpegAvcDecodeDetailIndex>,"sceMpegAvcDecodeDetailIndex"},
-	{0xcf3547a2,WrapU_U<sceMpegAvcDecodeDetail2>,"sceMpegAvcDecodeDetail2"},
-	{0x921fcccf,WrapU_U<sceMpegGetAvcEsAu>,"sceMpegGetAvcEsAu"},
-	{0xE95838F6,WrapU_U<sceMpegAvcCscInfo>,"sceMpegAvcCscInfo"},
-	{0xD1CE4950,WrapU_U<sceMpegAvcCscMode>,"sceMpegAvcCscMode"},
-	{0xDBB60658,WrapU_U<sceMpegFlushAu>,"sceMpegFlushAu"},
-	{0xd4dd6e75,0,"sceMpeg_D4DD6E75"},
-	{0x11cab459,0,"sceMpeg_11CAB459"},
-	{0xc345ded2,0,"sceMpeg_C345DED2"},
-	{0xb27711a8,0,"sceMpeg_B27711A8"},
-	{0x988e9e12,0,"sceMpeg_988E9E12"},
+	{0XE1CE83A7, &WrapI_UUUU<sceMpegGetAtracAu>,               "sceMpegGetAtracAu",                  'i', "xxxx"   },
+	{0XFE246728, &WrapI_UUUU<sceMpegGetAvcAu>,                 "sceMpegGetAvcAu",                    'i', "xxxx"   },
+	{0XD8C5F121, &WrapU_UUUUUUU<sceMpegCreate>,                "sceMpegCreate",                      'x', "xxxxxxx"},
+	{0XF8DCB679, &WrapI_UUU<sceMpegQueryAtracEsSize>,          "sceMpegQueryAtracEsSize",            'i', "xxx"    },
+	{0XC132E22F, &WrapU_V<sceMpegQueryMemSize>,                "sceMpegQueryMemSize",                'x', ""       },
+	{0X21FF80E4, &WrapI_UUU<sceMpegQueryStreamOffset>,         "sceMpegQueryStreamOffset",           'i', "xxx"    },
+	{0X611E9E11, &WrapU_UU<sceMpegQueryStreamSize>,            "sceMpegQueryStreamSize",             'x', "xx"     },
+	{0X42560F23, &WrapI_UUU<sceMpegRegistStream>,              "sceMpegRegistStream",                'i', "xxx"    },
+	{0X591A4AA2, &WrapU_UI<sceMpegUnRegistStream>,             "sceMpegUnRegistStream",              'x', "xi"     },
+	{0X707B7629, &WrapU_U<sceMpegFlushAllStream>,              "sceMpegFlushAllStream",              'x', "x"      },
+	{0X500F0429, &WrapU_UI<sceMpegFlushStream>,                "sceMpegFlushStream",                 'x', "xi"     },
+	{0XA780CF7E, &WrapI_U<sceMpegMallocAvcEsBuf>,              "sceMpegMallocAvcEsBuf",              'i', "x"      },
+	{0XCEB870B1, &WrapI_UI<sceMpegFreeAvcEsBuf>,               "sceMpegFreeAvcEsBuf",                'i', "xi"     },
+	{0X167AFD9E, &WrapI_UUU<sceMpegInitAu>,                    "sceMpegInitAu",                      'i', "xxx"    },
+	{0X682A619B, &WrapU_V<sceMpegInit>,                        "sceMpegInit",                        'x', ""       },
+	{0X606A4649, &WrapI_U<sceMpegDelete>,                      "sceMpegDelete",                      'i', "x"      },
+	{0X874624D6, &WrapU_V<sceMpegFinish>,                      "sceMpegFinish",                      'x', ""       },
+	{0X800C44DF, &WrapU_UUUI<sceMpegAtracDecode>,              "sceMpegAtracDecode",                 'x', "xxxi"   },
+	{0X0E3C2E9D, &WrapU_UUUUU<sceMpegAvcDecode>,               "sceMpegAvcDecode",                   'x', "xxxxx"  },
+	{0X740FCCD1, &WrapU_UUUU<sceMpegAvcDecodeStop>,            "sceMpegAvcDecodeStop",               'x', "xxxx"   },
+	{0X4571CC64, &WrapU_U<sceMpegAvcDecodeFlush>,              "sceMpegAvcDecodeFlush",              'x', "x"      },
+	{0X0F6C18D7, &WrapI_UU<sceMpegAvcDecodeDetail>,            "sceMpegAvcDecodeDetail",             'i', "xx"     },
+	{0XA11C7026, &WrapI_UU<sceMpegAvcDecodeMode>,              "sceMpegAvcDecodeMode",               'i', "xx"     },
+	{0X37295ED8, &WrapU_UUUUUU<sceMpegRingbufferConstruct>,    "sceMpegRingbufferConstruct",         'x', "xxxxxx" },
+	{0X13407F13, &WrapU_U<sceMpegRingbufferDestruct>,          "sceMpegRingbufferDestruct",          'x', "x"      },
+	{0XB240A59E, &WrapU_UUU<sceMpegRingbufferPut>,             "sceMpegRingbufferPut",               'x', "xxx"    },
+	{0XB5F6DC87, &WrapI_U<sceMpegRingbufferAvailableSize>,     "sceMpegRingbufferAvailableSize",     'i', "x"      },
+	{0XD7A29F46, &WrapU_I<sceMpegRingbufferQueryMemSize>,      "sceMpegRingbufferQueryMemSize",      'x', "i"      },
+	{0X769BEBB6, &WrapI_U<sceMpegRingbufferQueryPackNum>,      "sceMpegRingbufferQueryPackNum",      'i', "x"      },
+	{0X211A057C, &WrapI_UUUUU<sceMpegAvcQueryYCbCrSize>,       "sceMpegAvcQueryYCbCrSize",           'i', "xxxxx"  },
+	{0XF0EB1125, &WrapI_UUUU<sceMpegAvcDecodeYCbCr>,           "sceMpegAvcDecodeYCbCr",              'i', "xxxx"   },
+	{0XF2930C9C, &WrapU_UUU<sceMpegAvcDecodeStopYCbCr>,        "sceMpegAvcDecodeStopYCbCr",          'x', "xxx"    },
+	{0X67179B1B, &WrapU_UIIIU<sceMpegAvcInitYCbCr>,            "sceMpegAvcInitYCbCr",                'x', "xiiix"  },
+	{0X0558B075, &WrapU_UUU<sceMpegAvcCopyYCbCr>,              "sceMpegAvcCopyYCbCr",                'x', "xxx"    },
+	{0X31BD0272, &WrapU_UUUIU<sceMpegAvcCsc>,                  "sceMpegAvcCsc",                      'x', "xxxix"  },
+	{0X9DCFB7EA, &WrapU_UII<sceMpegChangeGetAuMode>,           "sceMpegChangeGetAuMode",             'x', "xii"    },
+	{0X8C1E027D, &WrapU_UIUU<sceMpegGetPcmAu>,                 "sceMpegGetPcmAu",                    'x', "xixx"   },
+	{0XC02CF6B5, &WrapI_UUU<sceMpegQueryPcmEsSize>,            "sceMpegQueryPcmEsSize",              'i', "xxx"    },
+	{0XC45C99CC, &WrapU_UUU<sceMpegQueryUserdataEsSize>,       "sceMpegQueryUserdataEsSize",         'x', "xxx"    },
+	{0X234586AE, &WrapU_UUI<sceMpegChangeGetAvcAuMode>,        "sceMpegChangeGetAvcAuMode",          'x', "xxi"    },
+	{0X63B9536A, &WrapU_U<sceMpegAvcResourceGetAvcDecTopAddr>, "sceMpegAvcResourceGetAvcDecTopAddr", 'x', "x"      },
+	{0X8160A2FE, &WrapU_U<sceMpegAvcResourceFinish>,           "sceMpegAvcResourceFinish",           'x', "x"      },
+	{0XAF26BB01, &WrapU_U<sceMpegAvcResourceGetAvcEsBuf>,      "sceMpegAvcResourceGetAvcEsBuf",      'x', "x"      },
+	{0XFCBDB5AD, &WrapU_U<sceMpegAvcResourceInit>,             "sceMpegAvcResourceInit",             'x', "x"      },
+	{0XF5E7EA31, &WrapI_UUUI<sceMpegAvcConvertToYuv420>,       "sceMpegAvcConvertToYuv420",          'i', "xxxi"   },
+	{0X01977054, &WrapI_UUUU<sceMpegGetUserdataAu>,            "sceMpegGetUserdataAu",               'i', "xxxx"   },
+	{0X3C37A7A6, &WrapU_UU<sceMpegNextAvcRpAu>,                "sceMpegNextAvcRpAu",                 'x', "xx"     },
+	{0X11F95CF1, &WrapU_U<sceMpegGetAvcNalAu>,                 "sceMpegGetAvcNalAu",                 'x', "x"      },
+	{0XAB0E9556, &WrapU_U<sceMpegAvcDecodeDetailIndex>,        "sceMpegAvcDecodeDetailIndex",        'x', "x"      },
+	{0XCF3547A2, &WrapU_U<sceMpegAvcDecodeDetail2>,            "sceMpegAvcDecodeDetail2",            'x', "x"      },
+	{0X921FCCCF, &WrapU_U<sceMpegGetAvcEsAu>,                  "sceMpegGetAvcEsAu",                  'x', "x"      },
+	{0XE95838F6, &WrapU_U<sceMpegAvcCscInfo>,                  "sceMpegAvcCscInfo",                  'x', "x"      },
+	{0XD1CE4950, &WrapU_U<sceMpegAvcCscMode>,                  "sceMpegAvcCscMode",                  'x', "x"      },
+	{0XDBB60658, &WrapU_U<sceMpegFlushAu>,                     "sceMpegFlushAu",                     'x', "x"      },
+	{0XD4DD6E75, nullptr,                                      "sceMpeg_D4DD6E75",                   '?', ""       },
+	{0X11CAB459, nullptr,                                      "sceMpeg_11CAB459",                   '?', ""       },
+	{0XC345DED2, nullptr,                                      "sceMpeg_C345DED2",                   '?', ""       },
+	{0XB27711A8, nullptr,                                      "sceMpeg_B27711A8",                   '?', ""       },
+	{0X988E9E12, nullptr,                                      "sceMpeg_988E9E12",                   '?', ""       },
 };
 
 void Register_sceMpeg()
@@ -2219,12 +2251,12 @@ static u32 sceMpegbase_BEA18F91(u32 p)
 
 const HLEFunction sceMpegbase[] =
 {
-	{ 0xBEA18F91, WrapU_U<sceMpegbase_BEA18F91>, "sceMpegbase_BEA18F91" },
-	{ 0x492B5E4B, 0, "sceMpegBaseCscInit" },
-	{ 0x0530BE4E, 0, "sceMpegbase_0530BE4E" },
-	{ 0x91929A21, 0, "sceMpegBaseCscAvc" },
-	{ 0x304882E1, 0, "sceMpegBaseCscAvcRange" },
-	{ 0x7AC0321A, 0, "sceMpegBaseYCrCbCopy" }
+	{0XBEA18F91, &WrapU_U<sceMpegbase_BEA18F91>,               "sceMpegbase_BEA18F91",               'x', "x"      },
+	{0X492B5E4B, nullptr,                                      "sceMpegBaseCscInit",                 '?', ""       },
+	{0X0530BE4E, nullptr,                                      "sceMpegbase_0530BE4E",               '?', ""       },
+	{0X91929A21, nullptr,                                      "sceMpegBaseCscAvc",                  '?', ""       },
+	{0X304882E1, nullptr,                                      "sceMpegBaseCscAvcRange",             '?', ""       },
+	{0X7AC0321A, nullptr,                                      "sceMpegBaseYCrCbCopy",               '?', ""       }
 };
 
 void Register_sceMpegbase()

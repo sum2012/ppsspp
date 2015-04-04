@@ -75,7 +75,6 @@ using namespace Gen;
 #endif
 
 const u32 INVALID_EXIT = 0xFFFFFFFF;
-const MIPSOpcode INVALID_ORIGINAL_OP = MIPSOpcode(0x00000001);
 
 JitBlockCache::JitBlockCache(MIPSState *mips, NativeCodeBlock *codeBlock) :
 	mips_(mips), codeBlock_(codeBlock), blocks_(0), num_blocks_(0) {
@@ -249,12 +248,10 @@ void JitBlockCache::FinalizeBlock(int block_num, bool block_link) {
 
 	AddBlockMap(block_num);
 
-	u32 latestExit = 0;
 	if (block_link) {
 		for (int i = 0; i < MAX_JIT_BLOCK_EXITS; i++) {
 			if (b.exitAddress[i] != INVALID_EXIT) {
 				links_to_.insert(std::make_pair(b.exitAddress[i], block_num));
-				latestExit = std::max(latestExit, b.exitAddress[i]);
 			}
 		}
 
@@ -262,15 +259,16 @@ void JitBlockCache::FinalizeBlock(int block_num, bool block_link) {
 		LinkBlockExits(block_num);
 	}
 
+	const u32 blockEnd = b.originalAddress + b.originalSize * 4 - 4;
 	if (Memory::IsScratchpadAddress(b.originalAddress)) {
-		ExpandRange(blockMemRanges_[JITBLOCK_RANGE_SCRATCH], b.originalAddress, latestExit);
+		ExpandRange(blockMemRanges_[JITBLOCK_RANGE_SCRATCH], b.originalAddress, blockEnd);
 	}
 	const u32 halfUserMemory = (PSP_GetUserMemoryEnd() - PSP_GetUserMemoryBase()) / 2;
 	if (b.originalAddress < PSP_GetUserMemoryBase() + halfUserMemory) {
-		ExpandRange(blockMemRanges_[JITBLOCK_RANGE_RAMBOTTOM], b.originalAddress, latestExit);
+		ExpandRange(blockMemRanges_[JITBLOCK_RANGE_RAMBOTTOM], b.originalAddress, blockEnd);
 	}
-	if (latestExit > PSP_GetUserMemoryBase() + halfUserMemory) {
-		ExpandRange(blockMemRanges_[JITBLOCK_RANGE_RAMTOP], b.originalAddress, latestExit);
+	if (blockEnd > PSP_GetUserMemoryBase() + halfUserMemory) {
+		ExpandRange(blockMemRanges_[JITBLOCK_RANGE_RAMTOP], b.originalAddress, blockEnd);
 	}
 
 #if defined USE_OPROFILE && USE_OPROFILE
@@ -484,12 +482,13 @@ std::vector<u32> JitBlockCache::SaveAndClearEmuHackOps() {
 			continue;
 
 		const u32 emuhack = GetEmuHackOpForBlock(block_num).encoding;
-		result[block_num] = emuhack;
-		// The goal here is to prevent restoring it if it did not match (in case originalFirstOpcode does match.)
-		if (Memory::ReadUnchecked_U32(b.originalAddress) != emuhack)
-			b.originalFirstOpcode = INVALID_ORIGINAL_OP;
-		else
+		if (Memory::ReadUnchecked_U32(b.originalAddress) == emuhack)
+		{
+			result[block_num] = emuhack;
 			Memory::Write_Opcode_JIT(b.originalAddress, b.originalFirstOpcode);
+		}
+		else
+			result[block_num] = 0;
 	}
 
 	return result;
@@ -503,7 +502,7 @@ void JitBlockCache::RestoreSavedEmuHackOps(std::vector<u32> saved) {
 
 	for (int block_num = 0; block_num < num_blocks_; ++block_num) {
 		const JitBlock &b = blocks_[block_num];
-		if (b.invalid)
+		if (b.invalid || saved[block_num] == 0)
 			continue;
 
 		// Only if we restored it, write it back.
@@ -592,6 +591,11 @@ void JitBlockCache::InvalidateICache(u32 address, const u32 length) {
 	// Convert the logical address to a physical address for the block map
 	const u32 pAddr = address & 0x1FFFFFFF;
 	const u32 pEnd = pAddr + length;
+
+	if (pEnd < pAddr) {
+		ERROR_LOG(JIT, "Bad InvalidateICache: %08x with len=%d", address, length);
+		return;
+	}
 
 	// Blocks may start and end in overlapping ways, and destroying one invalidates iterators.
 	// So after destroying one, we start over.

@@ -1,25 +1,31 @@
 package org.ppsspp.ppsspp;
 
 import android.app.AlertDialog;
+import android.app.UiModeManager;
+import android.content.res.Configuration;
 import android.graphics.Point;
 import android.os.Build;
 import android.os.Bundle;
 import android.os.Looper;
+import android.util.Log;
 
-import com.google.analytics.tracking.android.EasyTracker;
 import com.henrikrydgard.libnative.NativeActivity;
 import com.henrikrydgard.libnative.NativeApp;
 
 public class PpssppActivity extends NativeActivity {
 	
 	private static boolean m_hasUnsupportedABI = false;
-	
+	private static boolean m_hasNoNativeBinary = false;
 	static {
 		
 		if(Build.CPU_ABI.equals("armeabi")) {
 			m_hasUnsupportedABI = true;
 		} else {
-			System.loadLibrary("ppsspp_jni");
+			try {
+				System.loadLibrary("ppsspp_jni");
+			} catch (UnsatisfiedLinkError e) {
+				m_hasNoNativeBinary = true;
+			}
 		}
 	}
 
@@ -35,14 +41,18 @@ public class PpssppActivity extends NativeActivity {
 	@Override
 	public void onCreate(Bundle savedInstanceState) {
 		
-		if(m_hasUnsupportedABI) {
+		if(m_hasUnsupportedABI || m_hasNoNativeBinary) {
 			
 			new Thread() {
 				@Override
 				public void run() {
 					Looper.prepare();
 					AlertDialog.Builder builder = new AlertDialog.Builder(PpssppActivity.this);
-					builder.setMessage(Build.CPU_ABI + " target is not supported.").setTitle("Error").create().show();
+					if (m_hasUnsupportedABI) {
+						builder.setMessage(Build.CPU_ABI + " target is not supported.").setTitle("Error starting PPSSPP").create().show();
+					} else {
+						builder.setMessage("The native part of PPSSPP for ABI " + Build.CPU_ABI + " is missing. Try downloading an official build?").setTitle("Error starting PPSSPP").create().show();
+					}
 					Looper.loop();
 				}
 				
@@ -55,7 +65,9 @@ public class PpssppActivity extends NativeActivity {
 			}
 			
 			System.exit(-1);
+			return;
 		}
+
 		// In case app launched from homescreen shortcut, get shortcut parameter
 		// using Intent extra string. Intent extra will be null if launch normal
 		// (from app drawer).
@@ -63,18 +75,7 @@ public class PpssppActivity extends NativeActivity {
 
 		super.onCreate(savedInstanceState);
 	}
-  
-	@Override
-	public void onStart() {
-		super.onStart();
-		EasyTracker.getInstance(this).activityStart(this);
-	}
 
-	@Override
-	public void onStop() {
-		super.onStop();
-		EasyTracker.getInstance(this).activityStop(this);
-	}
 
 	private void correctRatio(Point sz, float scale) {
 		float x = sz.x;
@@ -123,4 +124,4 @@ public class PpssppActivity extends NativeActivity {
 		}
 		correctRatio(sz, (float)scale);
 	}
-}  
+}

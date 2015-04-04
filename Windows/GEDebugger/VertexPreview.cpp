@@ -20,6 +20,7 @@
 #include "Windows/GEDebugger/GEDebugger.h"
 #include "Windows/GEDebugger/SimpleGLWindow.h"
 #include "Core/System.h"
+#include "Core/Config.h"
 #include "GPU/GPUInterface.h"
 #include "GPU/Common/GPUDebugInterface.h"
 #include "GPU/GPUState.h"
@@ -95,6 +96,9 @@ static void ExpandRectangles(std::vector<GPUDebugVertex> &vertices, std::vector<
 		numInds = count;
 	}
 
+	//rectangles always need 2 vertices, disregard the last one if there's an odd number
+	numInds = numInds & ~1;
+
 	// Will need 4 coords and 6 points per rectangle (currently 2 each.)
 	newVerts.resize(numInds * 2);
 	newInds.resize(numInds * 3);
@@ -102,8 +106,8 @@ static void ExpandRectangles(std::vector<GPUDebugVertex> &vertices, std::vector<
 	u16 v = 0;
 	GPUDebugVertex *vert = &newVerts[0];
 	u16 *ind = &newInds[0];
-	for (size_t i = 0, end = numInds; i < end; i += 2) {
-		const auto &orig_tl = useInds ? vertices[indices[i]] : vertices[i];
+	for (size_t i = 0; i < numInds; i += 2) {
+		const auto &orig_tl = useInds ? vertices[indices[i + 0]] : vertices[i + 0];
 		const auto &orig_br = useInds ? vertices[indices[i + 1]] : vertices[i + 1];
 
 		vert[0] = orig_br;
@@ -215,7 +219,7 @@ void CGEDebugger::UpdatePrimPreview(u32 op) {
 
 	// TODO: Probably there's a better way and place to do this.
 	u16 minIndex = 0;
-	u16 maxIndex = count;
+	u16 maxIndex = count - 1;
 	if (!indices.empty()) {
 		minIndex = 0xFFFF;
 		maxIndex = 0;
@@ -231,7 +235,7 @@ void CGEDebugger::UpdatePrimPreview(u32 op) {
 
 	const float invTexWidth = 1.0f / gstate_c.curTextureWidth;
 	const float invTexHeight = 1.0f / gstate_c.curTextureHeight;
-	for (u16 i = minIndex; i < maxIndex; ++i) {
+	for (u16 i = minIndex; i <= maxIndex; ++i) {
 		vertices[i].u *= invTexWidth;
 		vertices[i].v *= invTexHeight;
 		if (vertices[i].u > 1.0f || vertices[i].u < 0.0f)
@@ -254,6 +258,10 @@ void CGEDebugger::UpdatePrimPreview(u32 op) {
 }
 
 void CGEDebugger::CleanupPrimPreview() {
-	glsl_destroy(previewProgram);
-	glsl_destroy(texPreviewProgram);
+	if (previewProgram) {
+		glsl_destroy(previewProgram);
+	}
+	if (texPreviewProgram) {
+		glsl_destroy(texPreviewProgram);
+	}
 }

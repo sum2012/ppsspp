@@ -35,8 +35,10 @@ if(ARM OR SIMULATOR)
 	set(USING_EGL ON)
 endif()
 
-include(CheckIncludeFile)
-check_include_file(/opt/vc/include/bcm_host.h RPI)
+if(EXISTS "/opt/vc/include/bcm_host.h")
+	message(STATUS "RaspberryPI VC Found")
+	set(RPI ON)
+endif()
 
 if(BB)
 	set(ARMV7 ON)
@@ -687,7 +689,7 @@ else()
 	set(PNG_LIBRARY png17)
 	include_directories(native/ext)
 endif()
-	
+
 set(nativeExtra)
 set(nativeExtraLibs)
 
@@ -695,6 +697,8 @@ if(ARMV7)
 	if(BB)
 		set (CMAKE_ASM_FLAGS "${CMAKE_ASM_FLAGS} -march=armv7-a -mfpu=neon -mcpu=cortex-a8")
 	else()
+		set (CMAKE_C_FLAGS "${CMAKE_C_FLAGS} -march=armv7-a -mfpu=neon -mcpu=cortex-a9")
+		set (CMAKE_CXX_FLAGS "${CMAKE_CXX_FLAGS} -march=armv7-a -mfpu=neon -mcpu=cortex-a9")
 		set (CMAKE_ASM_FLAGS "${CMAKE_ASM_FLAGS} -march=armv7-a -mfpu=neon -mcpu=cortex-a9")
 	endif()
 	set(nativeExtra ${nativeExtra}
@@ -765,7 +769,7 @@ elseif(SDL2_FOUND)
 	# Require SDL
 	include_directories(${SDL2_INCLUDE_DIR})
 	add_definitions(-DSDL)
-	set(nativeExtra ${nativeExtra} 
+	set(nativeExtra ${nativeExtra}
 		SDL/SDLJoystick.h
 		SDL/SDLJoystick.cpp
 		native/base/PCMain.cpp)
@@ -1003,6 +1007,15 @@ add_library(kirk STATIC
 	ext/libkirk/kirk_engine.h)
 include_directories(ext/libkirk)
 
+add_library(sfmt19937 STATIC
+	ext/sfmt19937/SFMT.c
+	ext/sfmt19937/SFMT.h
+	ext/sfmt19937/SFMT-common.h
+	ext/sfmt19937/SFMT-params.h
+	ext/sfmt19937/SFMT-params19937.h
+)
+include_directories(ext/sfmt19937)
+
 add_library(xbrz STATIC
 	ext/xbrz/xbrz.cpp
 	ext/xbrz/xbrz.h
@@ -1152,11 +1165,15 @@ add_library(${CoreLibName} ${CoreLinkType}
 	Core/HLE/KernelWaitHelpers.h
 	Core/HLE/__sceAudio.cpp
 	Core/HLE/__sceAudio.h
+	Core/HLE/sceAdler.cpp
+	Core/HLE/sceAdler.h
 	Core/HLE/sceAtrac.cpp
 	Core/HLE/sceAtrac.h
 	Core/HLE/sceAudio.cpp
 	Core/HLE/sceAudiocodec.cpp
 	Core/HLE/sceAudiocodec.h
+	Core/HLE/sceAudioRouting.cpp
+	Core/HLE/sceAudioRouting.h
 	Core/HLE/sceAudio.h
 	Core/HLE/sceCcc.h
 	Core/HLE/sceCcc.cpp
@@ -1170,6 +1187,8 @@ add_library(${CoreLibName} ${CoreLinkType}
 	Core/HLE/sceDisplay.h
 	Core/HLE/sceDmac.cpp
 	Core/HLE/sceDmac.h
+	Core/HLE/sceG729.cpp
+	Core/HLE/sceG729.h
 	Core/HLE/sceGameUpdate.cpp
 	Core/HLE/sceGameUpdate.h
 	Core/HLE/sceGe.cpp
@@ -1248,6 +1267,8 @@ add_library(${CoreLibName} ${CoreLinkType}
 	Core/HLE/sceRtc.h
 	Core/HLE/sceSas.cpp
 	Core/HLE/sceSas.h
+	Core/HLE/sceSfmt19937.cpp
+	Core/HLE/sceSfmt19937.h
 	Core/HLE/sceSha256.cpp
 	Core/HLE/sceSha256.h
 	Core/HLE/sceSsl.cpp
@@ -1342,7 +1363,7 @@ add_library(${CoreLibName} ${CoreLinkType}
 	$<TARGET_OBJECTS:GPU>
 	Globals.h
 	git-version.cpp)
-target_link_libraries(${CoreLibName} Common native kirk cityhash xbrz xxhash
+target_link_libraries(${CoreLibName} Common native kirk cityhash sfmt19937 xbrz xxhash
 	${CoreExtraLibs} ${GLEW_LIBRARIES} ${OPENGL_LIBRARIES} ${X11_LIBRARIES} ${CMAKE_DL_LIBS})
 setup_target_project(${CoreLibName} Core)
 
@@ -1361,6 +1382,8 @@ if(ARMV7)
 	set(GPU_NEON GPU/Common/TextureDecoderNEON.cpp)
 endif()
 add_library(GPU OBJECT
+	GPU/Common/DepalettizeShaderCommon.cpp
+	GPU/Common/DepalettizeShaderCommon.h
 	GPU/Common/FramebufferCommon.cpp
 	GPU/Common/FramebufferCommon.h
 	GPU/Common/GPUDebugInterface.h
@@ -1542,8 +1565,8 @@ endif()
 
 if (TargetBin)
 	if (IOS OR APPLE)
-		set(ICON_PATH_ABS ${CMAKE_CURRENT_SOURCE_DIR}/assets/icon-114.icns)
-		set( MACOSX_BUNDLE_ICON_FILE icon-114.icns )
+		set(ICON_PATH_ABS ${CMAKE_CURRENT_SOURCE_DIR}/assets/ppsspp.icns)
+		set( MACOSX_BUNDLE_ICON_FILE ppsspp.icns )
 		set_source_files_properties(${ICON_PATH_ABS} PROPERTIES MACOSX_PACKAGE_LOCATION "Resources")
 
 		# TODO: there must a native way to copy these.
@@ -1556,7 +1579,7 @@ if (TargetBin)
 		set_source_files_properties(${FLASH0_FILES} PROPERTIES MACOSX_PACKAGE_LOCATION "MacOS/assets/flash0/font")
 		set_source_files_properties(${LANG_FILES} PROPERTIES MACOSX_PACKAGE_LOCATION "MacOS/assets/lang")
 		set_source_files_properties(${SHADER_FILES} PROPERTIES MACOSX_PACKAGE_LOCATION "MacOS/assets/shaders")
-		
+
 		add_executable(${TargetBin} MACOSX_BUNDLE ${ICON_PATH_ABS} ${NativeAssets} ${SHADER_FILES} ${FLASH0_FILES} ${LANG_FILES} ${NativeAppSource})
 	else()
 		add_executable(${TargetBin} ${NativeAppSource})

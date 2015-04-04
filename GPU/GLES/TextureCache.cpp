@@ -1075,11 +1075,11 @@ void TextureCache::SetTextureFramebuffer(TexCacheEntry *entry, VirtualFramebuffe
 	framebuffer->usageFlags |= FB_USAGE_TEXTURE;
 	bool useBufferedRendering = g_Config.iRenderingMode != FB_NON_BUFFERED_MODE;
 	if (useBufferedRendering) {
-		GLuint program = 0;
+		DepalShader *depal = nullptr;
 		if ((entry->status & TexCacheEntry::STATUS_DEPALETTIZE) && !g_Config.bDisableSlowFramebufEffects) {
-			program = depalShaderCache_->GetDepalettizeShader(framebuffer->drawnFormat);
+			depal = depalShaderCache_->GetDepalettizeShader(framebuffer->drawnFormat);
 		}
-		if (program) {
+		if (depal) {
 			GLuint clutTexture = depalShaderCache_->GetClutTexture(clutHash_, clutBuf_);
 			FBO *depalFBO = framebufferManager_->GetTempFBO(framebuffer->renderWidth, framebuffer->renderHeight, FBO_8888);
 			fbo_bind_as_render_target(depalFBO);
@@ -1099,17 +1099,14 @@ void TextureCache::SetTextureFramebuffer(TexCacheEntry *entry, VirtualFramebuffe
 
 			shaderManager_->DirtyLastShader();
 
-			glUseProgram(program);
-
-			GLint a_position = glGetAttribLocation(program, "a_position");
-			GLint a_texcoord0 = glGetAttribLocation(program, "a_texcoord0");
+			glUseProgram(depal->program);
 
 			glstate.arrayBuffer.unbind();
 			glstate.elementArrayBuffer.unbind();
-			glEnableVertexAttribArray(a_position);
-			glEnableVertexAttribArray(a_texcoord0);
+			glEnableVertexAttribArray(depal->a_position);
+			glEnableVertexAttribArray(depal->a_texcoord0);
 
-			glActiveTexture(GL_TEXTURE1);
+			glActiveTexture(GL_TEXTURE3);
 			glBindTexture(GL_TEXTURE_2D, clutTexture);
 			glActiveTexture(GL_TEXTURE0);
 
@@ -1128,11 +1125,11 @@ void TextureCache::SetTextureFramebuffer(TexCacheEntry *entry, VirtualFramebuffe
 #endif
 			glViewport(0, 0, framebuffer->renderWidth, framebuffer->renderHeight);
 
-			glVertexAttribPointer(a_position, 3, GL_FLOAT, GL_FALSE, 12, pos);
-			glVertexAttribPointer(a_texcoord0, 2, GL_FLOAT, GL_FALSE, 8, uv);
+			glVertexAttribPointer(depal->a_position, 3, GL_FLOAT, GL_FALSE, 12, pos);
+			glVertexAttribPointer(depal->a_texcoord0, 2, GL_FLOAT, GL_FALSE, 8, uv);
 			glDrawElements(GL_TRIANGLE_STRIP, 4, GL_UNSIGNED_BYTE, indices);
-			glDisableVertexAttribArray(a_position);
-			glDisableVertexAttribArray(a_texcoord0);
+			glDisableVertexAttribArray(depal->a_position);
+			glDisableVertexAttribArray(depal->a_texcoord0);
 
 			fbo_bind_color_as_texture(depalFBO, 0);
 			glstate.Restore();
@@ -1150,7 +1147,7 @@ void TextureCache::SetTextureFramebuffer(TexCacheEntry *entry, VirtualFramebuffe
 			entry->status &= ~TexCacheEntry::STATUS_DEPALETTIZE;
 			framebufferManager_->BindFramebufferColor(GL_TEXTURE0, framebuffer);
 
-			gstate_c.textureFullAlpha = framebuffer->drawnFormat == GE_FORMAT_565;
+			gstate_c.textureFullAlpha = gstate.getTextureFormat() == GE_TFMT_5650;
 			gstate_c.textureSimpleAlpha = gstate_c.textureFullAlpha;
 		}
 
@@ -1385,8 +1382,10 @@ void TextureCache::SetTexture(bool force) {
 		}
 
 		if (match && (entry->status & TexCacheEntry::STATUS_TO_SCALE) && g_Config.iTexScalingLevel != 1 && texelsScaledThisFrame_ < TEXCACHE_MAX_TEXELS_SCALED) {
-			// INFO_LOG(G3D, "Reloading texture to do the scaling we skipped..");
-			match = false;
+			if ((entry->status & TexCacheEntry::STATUS_CHANGE_FREQUENT) == 0) {
+				// INFO_LOG(G3D, "Reloading texture to do the scaling we skipped..");
+				match = false;
+			}
 		}
 
 		if (match) {
@@ -2023,12 +2022,16 @@ void TextureCache::LoadTextureLevel(TexCacheEntry &entry, int level, bool replac
 		glTexSubImage2D(GL_TEXTURE_2D, level, 0, 0, w, h, components2, dstFmt, pixelData);
 	} else {
 		glTexImage2D(GL_TEXTURE_2D, level, components, w, h, 0, components2, dstFmt, pixelData);
-		GLenum err = glGetError();
-		if (err == GL_OUT_OF_MEMORY) {
-			lowMemoryMode_ = true;
-			Decimate();
-			// Try again.
-			glTexImage2D(GL_TEXTURE_2D, level, components, w, h, 0, components2, dstFmt, pixelData);
+		if (!lowMemoryMode_) {
+			GLenum err = glGetError();
+			if (err == GL_OUT_OF_MEMORY) {
+				WARN_LOG_REPORT(G3D, "Texture cache ran out of GPU memory; switching to low memory mode");
+				lowMemoryMode_ = true;
+				decimationCounter_ = 0;
+				Decimate();
+				// Try again, now that we've cleared out textures in lowMemoryMode_.
+				glTexImage2D(GL_TEXTURE_2D, level, components, w, h, 0, components2, dstFmt, pixelData);
+			}
 		}
 	}
 

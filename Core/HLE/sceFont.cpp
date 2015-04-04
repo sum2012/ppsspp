@@ -939,7 +939,7 @@ static int sceFontFindOptimumFont(u32 libHandle, u32 fontStylePtr, u32 errorCode
 		if (q != MATCH_NONE) {
 			auto matchStyle = internalFonts[i]->GetFontStyle();
 			if (requestedStyle->fontH > 0.0f) {
-				float hDist = abs(matchStyle.fontHRes * matchStyle.fontH - hRes * requestedStyle->fontH);
+				float hDist = fabs(matchStyle.fontHRes * matchStyle.fontH - hRes * requestedStyle->fontH);
 				if (hDist < nearestDist) {
 					nearestDist = hDist;
 					nearestFont = internalFonts[i];
@@ -947,7 +947,7 @@ static int sceFontFindOptimumFont(u32 libHandle, u32 fontStylePtr, u32 errorCode
 			}
 			if (requestedStyle->fontV > 0.0f) {
 				// Appears to be a bug?  It seems to match H instead of V.
-				float vDist = abs(matchStyle.fontVRes * matchStyle.fontV - vRes * requestedStyle->fontH);
+				float vDist = fabs(matchStyle.fontVRes * matchStyle.fontV - vRes * requestedStyle->fontH);
 				if (vDist < nearestDist) {
 					nearestDist = vDist;
 					nearestFont = internalFonts[i];
@@ -1002,7 +1002,7 @@ static int sceFontFindFont(u32 libHandle, u32 fontStylePtr, u32 errorCodePtr) {
 		if (internalFonts[i]->MatchesStyle(*requestedStyle) != MATCH_NONE) {
 			auto matchStyle = internalFonts[i]->GetFontStyle();
 			if (requestedStyle->fontH > 0.0f) {
-				float hDist = abs(matchStyle.fontHRes * matchStyle.fontH - hRes * requestedStyle->fontH);
+				float hDist = fabs(matchStyle.fontHRes * matchStyle.fontH - hRes * requestedStyle->fontH);
 				if (hDist > 0.001f) {
 					continue;
 				}
@@ -1354,35 +1354,37 @@ static int sceFontGetShadowGlyphImage_Clip(u32 fontHandle, u32 charCode, u32 gly
 	return 0;
 }
 
+// sceLibFont is a user level library so it can touch the stack. Some games appear to rely a bit of stack
+// being wiped - although in reality, it won't be wiped with just zeroes..
 const HLEFunction sceLibFont[] = {
-	{0x67f17ed7, WrapU_UU<sceFontNewLib>, "sceFontNewLib"},
-	{0x574b6fbc, WrapI_U<sceFontDoneLib>, "sceFontDoneLib"},
-	{0x48293280, WrapI_UFF<sceFontSetResolution>, "sceFontSetResolution"},
-	{0x27f6e642, WrapI_UU<sceFontGetNumFontList>, "sceFontGetNumFontList"},
-	{0xbc75d85b, WrapI_UUI<sceFontGetFontList>, "sceFontGetFontList"},
-	{0x099ef33c, WrapI_UUU<sceFontFindOptimumFont>, "sceFontFindOptimumFont"},
-	{0x681e61a7, WrapI_UUU<sceFontFindFont>, "sceFontFindFont"},
-	{0x2f67356a, WrapI_V<sceFontCalcMemorySize>, "sceFontCalcMemorySize"},
-	{0x5333322d, WrapI_UUU<sceFontGetFontInfoByIndexNumber>, "sceFontGetFontInfoByIndexNumber"},
-	{0xa834319d, WrapU_UUUU<sceFontOpen>, "sceFontOpen"},
-	{0x57fcb733, WrapU_UCUU<sceFontOpenUserFile>, "sceFontOpenUserFile"},
-	{0xbb8e7fe6, WrapU_UUUU<sceFontOpenUserMemory>, "sceFontOpenUserMemory"},
-	{0x3aea8cb6, WrapI_U<sceFontClose>, "sceFontClose"},
-	{0x0da7535e, WrapI_UU<sceFontGetFontInfo>, "sceFontGetFontInfo"},
-	{0xdcc80c2f, WrapI_UUU<sceFontGetCharInfo>, "sceFontGetCharInfo"},
-	{0xaa3de7b5, WrapI_UUU<sceFontGetShadowInfo>, "sceFontGetShadowInfo"},
-	{0x5c3e4a9e, WrapI_UUU<sceFontGetCharImageRect>, "sceFontGetCharImageRect"},
-	{0x48b06520, WrapI_UUU<sceFontGetShadowImageRect>, "sceFontGetShadowImageRect"},
-	{0x980f4895, WrapI_UUU<sceFontGetCharGlyphImage>, "sceFontGetCharGlyphImage"},
-	{0xca1e6945, WrapI_UUUIIII<sceFontGetCharGlyphImage_Clip>, "sceFontGetCharGlyphImage_Clip"},
-	{0x74b21701, WrapF_IFU<sceFontPixelToPointH>, "sceFontPixelToPointH"},
-	{0xf8f0752e, WrapF_IFU<sceFontPixelToPointV>, "sceFontPixelToPointV"},
-	{0x472694cd, WrapF_IFU<sceFontPointToPixelH>, "sceFontPointToPixelH"},
-	{0x3c4b7e82, WrapF_IFU<sceFontPointToPixelV>, "sceFontPointToPixelV"},
-	{0xee232411, WrapI_UU<sceFontSetAltCharacterCode>, "sceFontSetAltCharacterCode"},
-	{0x568be516, WrapI_UUU<sceFontGetShadowGlyphImage>, "sceFontGetShadowGlyphImage"},
-	{0x5dcf6858, WrapI_UUUIIII<sceFontGetShadowGlyphImage_Clip>, "sceFontGetShadowGlyphImage_Clip"},
-	{0x02d7f94b, WrapI_U<sceFontFlush>, "sceFontFlush"},
+	{0X67F17ED7, &WrapU_UU<sceFontNewLib>,                        "sceFontNewLib",                   'x', "xx",      HLE_CLEAR_STACK_BYTES, 0x5A0 },
+	{0X574B6FBC, &WrapI_U<sceFontDoneLib>,                        "sceFontDoneLib",                  'i', "x",       HLE_CLEAR_STACK_BYTES, 0x2C  },
+	{0X48293280, &WrapI_UFF<sceFontSetResolution>,                "sceFontSetResolution",            'i', "xff"      },
+	{0X27F6E642, &WrapI_UU<sceFontGetNumFontList>,                "sceFontGetNumFontList",           'i', "xx"       },
+	{0XBC75D85B, &WrapI_UUI<sceFontGetFontList>,                  "sceFontGetFontList",              'i', "xxi",     HLE_CLEAR_STACK_BYTES, 0x31C },
+	{0X099EF33C, &WrapI_UUU<sceFontFindOptimumFont>,              "sceFontFindOptimumFont",          'i', "xxx",     HLE_CLEAR_STACK_BYTES, 0xF0  },
+	{0X681E61A7, &WrapI_UUU<sceFontFindFont>,                     "sceFontFindFont",                 'i', "xxx",     HLE_CLEAR_STACK_BYTES, 0x40  },
+	{0X2F67356A, &WrapI_V<sceFontCalcMemorySize>,                 "sceFontCalcMemorySize",           'i', ""         },
+	{0X5333322D, &WrapI_UUU<sceFontGetFontInfoByIndexNumber>,     "sceFontGetFontInfoByIndexNumber", 'i', "xxx",     HLE_CLEAR_STACK_BYTES, 0x20  },
+	{0XA834319D, &WrapU_UUUU<sceFontOpen>,                        "sceFontOpen",                     'x', "xxxx",    HLE_CLEAR_STACK_BYTES, 0x460 },
+	{0X57FCB733, &WrapU_UCUU<sceFontOpenUserFile>,                "sceFontOpenUserFile",             'x', "xsxx"     },
+	{0XBB8E7FE6, &WrapU_UUUU<sceFontOpenUserMemory>,              "sceFontOpenUserMemory",           'x', "xxxx",    HLE_CLEAR_STACK_BYTES, 0x440 /*from JPCSP*/ },
+	{0X3AEA8CB6, &WrapI_U<sceFontClose>,                          "sceFontClose",                    'i', "x",       HLE_CLEAR_STACK_BYTES, 0x54  },
+	{0X0DA7535E, &WrapI_UU<sceFontGetFontInfo>,                   "sceFontGetFontInfo",              'i', "xx"       },
+	{0XDCC80C2F, &WrapI_UUU<sceFontGetCharInfo>,                  "sceFontGetCharInfo",              'i', "xxx",     HLE_CLEAR_STACK_BYTES, 0x110 },
+	{0XAA3DE7B5, &WrapI_UUU<sceFontGetShadowInfo>,                "sceFontGetShadowInfo",            'i', "xxx",     HLE_CLEAR_STACK_BYTES, 0x150 },
+	{0X5C3E4A9E, &WrapI_UUU<sceFontGetCharImageRect>,             "sceFontGetCharImageRect",         'i', "xxx",     HLE_CLEAR_STACK_BYTES, 0x120 },
+	{0X48B06520, &WrapI_UUU<sceFontGetShadowImageRect>,           "sceFontGetShadowImageRect",       'i', "xxx",     HLE_CLEAR_STACK_BYTES, 0x150 },
+	{0X980F4895, &WrapI_UUU<sceFontGetCharGlyphImage>,            "sceFontGetCharGlyphImage",        'i', "xxx",     HLE_CLEAR_STACK_BYTES, 0x120 },
+	{0XCA1E6945, &WrapI_UUUIIII<sceFontGetCharGlyphImage_Clip>,   "sceFontGetCharGlyphImage_Clip",   'i', "xxxiiii", HLE_CLEAR_STACK_BYTES, 0x130 },
+	{0X74B21701, &WrapF_IFU<sceFontPixelToPointH>,                "sceFontPixelToPointH",            'f', "ifx",     HLE_CLEAR_STACK_BYTES, 0x10  },
+	{0XF8F0752E, &WrapF_IFU<sceFontPixelToPointV>,                "sceFontPixelToPointV",            'f', "ifx",     HLE_CLEAR_STACK_BYTES, 0x10  },
+	{0X472694CD, &WrapF_IFU<sceFontPointToPixelH>,                "sceFontPointToPixelH",            'f', "ifx"      },
+	{0X3C4B7E82, &WrapF_IFU<sceFontPointToPixelV>,                "sceFontPointToPixelV",            'f', "ifx"      },
+	{0XEE232411, &WrapI_UU<sceFontSetAltCharacterCode>,           "sceFontSetAltCharacterCode",      'i', "xx"       },
+	{0X568BE516, &WrapI_UUU<sceFontGetShadowGlyphImage>,          "sceFontGetShadowGlyphImage",      'i', "xxx",     HLE_CLEAR_STACK_BYTES, 0x160 },
+	{0X5DCF6858, &WrapI_UUUIIII<sceFontGetShadowGlyphImage_Clip>, "sceFontGetShadowGlyphImage_Clip", 'i', "xxxiiii", HLE_CLEAR_STACK_BYTES, 0x170 },
+	{0X02D7F94B, &WrapI_U<sceFontFlush>,                          "sceFontFlush",                    'i', "x"        },
 };
 
 void Register_sceFont() {

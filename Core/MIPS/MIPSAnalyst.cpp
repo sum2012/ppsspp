@@ -105,7 +105,7 @@ static const HardHashTableEntry hardcodedHashes[] = {
 	//{ 0x0eb5f2e95f59276a, 40, "dl_write_lightmode", },
 	{ 0x0f1e7533a546f6a1, 228, "dl_write_bone_matrix_4", },
 	{ 0x0f2a1106ad84fb74, 52, "strcmp", },
-	{ 0x0ffa5db8396d4274, 64, "memcpy", }, // CRUSH
+	{ 0x0ffa5db8396d4274, 64, "memcpy_jak", }, // CRUSH
 	{ 0x1252e902d0b49bfb, 44, "vector_sub_q_2", },
 	{ 0x12df3d33a58d0298, 52, "vmidt_t", },
 	{ 0x12feef7b017d3431, 700, "memmove", },
@@ -347,6 +347,7 @@ static const HardHashTableEntry hardcodedHashes[] = {
 	{ 0xad67add5122b8c64, 52, "matrix_q_translate_t", },
 	{ 0xada952a1adcea4f5, 60, "vmmul_q_transp5", },
 	{ 0xadfbf8fb8c933193, 56, "fabs", },
+	{ 0xae39bac51fd6e76b, 628, "gakuenheaven_download_frame", }, // Gakuen Heaven: Boy's Love Scramble!
 	{ 0xae50226363135bdd, 24, "vector_sub_t", },
 	{ 0xae6cd7dfac82c244, 48, "vpow_s", },
 	{ 0xaf85d47f95ad2921, 1936, "pow", },
@@ -395,6 +396,7 @@ static const HardHashTableEntry hardcodedHashes[] = {
 	{ 0xc6b29de7d3245198, 656, "starocean_write_stencil" }, // Star Ocean 1 (US)
 	{ 0xc96e3a087ebf49a9, 100, "dl_write_light_color", },
 	{ 0xca7cb2c0b9410618, 680, "kudwafter_download_frame", }, // Kud Wafter
+	{ 0xcb22120018386319, 692, "photokano_download_frame", }, // Photo Kano
 	{ 0xcb7a2edd603ecfef, 48, "vtfm_p", },
 	{ 0xcdf64d21418b2667, 24, "vzero_q", },
 	{ 0xce1c95ee25b8e2ea, 448, "fmod", },
@@ -438,7 +440,7 @@ static const HardHashTableEntry hardcodedHashes[] = {
 	{ 0xe83a7a9d80a21c11, 4448, "_strtod_r", },
 	{ 0xe894bda909a8a8f9, 1064, "expensive_wipeout_pulse", },
 	{ 0xe8ad7719be44e7c8, 276, "strchr", },
-	{ 0xeabb9c1b4f83d2b4, 52, "memset", }, // Crisis Core (US)
+	{ 0xeabb9c1b4f83d2b4, 52, "memset_jak", }, // Crisis Core (US), Jak and Daxter (this is a slow memset and needs to have slow timing)
 	{ 0xeb0f7bf63d52ece9, 88, "strncat", },
 	{ 0xeb8c0834d8bbc28c, 416, "fmodf", },
 	{ 0xed8918f378e9a563, 628, "sd_gundam_g_generation_download_frame", }, // SD Gundam G Generation Overworld
@@ -450,6 +452,7 @@ static const HardHashTableEntry hardcodedHashes[] = {
 	{ 0xf4d797cef4ac88cd, 684, "_free_r", },
 	{ 0xf4ea7d2ec943fa02, 224, "sinf", },
 	{ 0xf4f8cdf479dfc4a4, 224, "sinf", },
+	{ 0xf527d906d69005a0, 848, "photokano_download_frame_2", }, // Photo Kano
 	{ 0xf52f993e444b6c52, 44, "dl_write_shademode", },
 	{ 0xf56641884b36c638, 468, "scalbn", },
 	{ 0xf5e91870b5b76ddc, 288, "motorstorm_download_frame", }, // MotorStorm: Arctic Edge

@@ -311,7 +311,7 @@ namespace MainWindow
 		}
 	}
 
-	void ToggleFullscreen(HWND hWnd, bool goingFullscreen = false) {
+	void ToggleFullscreen(HWND hWnd, bool goingFullscreen) {
 		// Make sure no rendering is happening during the switch.
 		Core_NotifyWindowHidden(true);
 		g_inModeSwitch = true;  // Make sure WM_SIZE doesn't call Core_NotifyWindowHidden(false)...
@@ -372,6 +372,7 @@ namespace MainWindow
 
 		g_inModeSwitch = false;
 		Core_NotifyWindowHidden(false);
+		WindowsRawInput::NotifyMenu();
 	}
 
 	RECT DetermineWindowRectangle() {
@@ -727,6 +728,7 @@ namespace MainWindow
 		switch(g_Config.iRenderingMode) {
 		case FB_NON_BUFFERED_MODE:
 			osm.Show(g->T("Non-Buffered Rendering"));
+			g_Config.bAutoFrameSkip = false;
 			break;
 
 		case FB_BUFFERED_MODE:
@@ -734,11 +736,11 @@ namespace MainWindow
 			break;
 
 		case FB_READFBOMEMORY_CPU:
-			osm.Show(g->T("Read Framebuffer to Memory (CPU)"));
+			osm.Show(g->T("Read Framebuffers To Memory (CPU)"));
 			break;
 
 		case FB_READFBOMEMORY_GPU:
-			osm.Show(g->T("Read Framebuffer to Memory (GPU)"));
+			osm.Show(g->T("Read Framebuffers To Memory (GPU)"));
 			break;
 		}
 
@@ -1081,6 +1083,8 @@ namespace MainWindow
 			{
 				bool pause = true;
 				if (wParam == WA_ACTIVE || wParam == WA_CLICKACTIVE) {
+					WindowsRawInput::GainFocus();
+					InputDevice::GainFocus();
 					g_activeWindow = WINDOW_MAINWINDOW;
 					pause = false;
 				}
@@ -1095,6 +1099,7 @@ namespace MainWindow
 
 				if (wParam == WA_INACTIVE) {
 					WindowsRawInput::LoseFocus();
+					InputDevice::LoseFocus();
 				}
 			}
 			break;
@@ -1343,6 +1348,8 @@ namespace MainWindow
 
 				case ID_OPTIONS_FRAMESKIP_AUTO:
 					g_Config.bAutoFrameSkip = !g_Config.bAutoFrameSkip;
+					if (g_Config.bAutoFrameSkip && g_Config.iRenderingMode == FB_NON_BUFFERED_MODE)
+						g_Config.iRenderingMode = FB_BUFFERED_MODE;
 					break;
 
 				case ID_TEXTURESCALING_AUTO: setTexScalingMultiplier(TEXSCALING_AUTO); break;
@@ -1527,10 +1534,7 @@ namespace MainWindow
 					break;
 
 				case ID_OPTIONS_FULLSCREEN:
-					g_Config.bFullScreen = !g_Config.bFullScreen;
-
-					ToggleFullscreen(hwndMain, g_Config.bFullScreen);
-
+					PostMessage(hWnd, WM_USER_TOGGLE_FULLSCREEN, 0, 0);
 					break;
 
 				case ID_OPTIONS_VERTEXCACHE:
@@ -1615,6 +1619,10 @@ namespace MainWindow
 					break;
 				}
 			}
+			break;
+
+		case WM_USER_TOGGLE_FULLSCREEN:
+			ToggleFullscreen(hwndMain, !g_Config.bFullScreen);
 			break;
 
 		case WM_INPUT:

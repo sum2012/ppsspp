@@ -63,33 +63,33 @@ namespace DX9 {
 	void CenterRect(float *x, float *y, float *w, float *h,
                 float origW, float origH, float frameW, float frameH) {
 		if (g_Config.bStretchToDisplay) {
-				*x = 0;
-				*y = 0;
-				*w = frameW;
-				*h = frameH;
-				return;
+			*x = 0;
+			*y = 0;
+			*w = frameW;
+			*h = frameH;
+			return;
 		}
 
 		float origRatio = origW/origH;
 		float frameRatio = frameW/frameH;
 
 		if (origRatio > frameRatio) {
-				// Image is wider than frame. Center vertically.
-				float scale = origW / frameW;
-				*x = 0.0f;
-				*w = frameW;
-				*h = frameW / origRatio;
-				// Stretch a little bit
-				if (g_Config.bPartialStretch)
-						*h = (frameH + *h) / 2.0f; // (408 + 720) / 2 = 564
-				*y = (frameH - *h) / 2.0f;
+			// Image is wider than frame. Center vertically.
+			float scale = origW / frameW;
+			*x = 0.0f;
+			*w = frameW;
+			*h = frameW / origRatio;
+			// Stretch a little bit
+			if (g_Config.bPartialStretch)
+				*h = (frameH + *h) / 2.0f; // (408 + 720) / 2 = 564
+			*y = (frameH - *h) / 2.0f;
 		} else {
-				// Image is taller than frame. Center horizontally.
-				float scale = origH / frameH;
-				*y = 0.0f;
-				*h = frameH;
-				*w = frameH * origRatio;
-				*x = (frameW - *w) / 2.0f;
+			// Image is taller than frame. Center horizontally.
+			float scale = origH / frameH;
+			*y = 0.0f;
+			*h = frameH;
+			*w = frameH * origRatio;
+			*x = (frameW - *w) / 2.0f;
 		}
 	}
 
@@ -202,8 +202,6 @@ namespace DX9 {
 		convBuf = (u8*)rect.pBits;
 
 		// Final format is BGRA(directx)
-
-		// TODO: We can just change the texture format and flip some bits around instead of this.
 		if (srcPixelFormat != GE_FORMAT_8888 || srcStride != 512) {
 			for (int y = 0; y < height; y++) {
 				switch (srcPixelFormat) {
@@ -734,6 +732,7 @@ namespace DX9 {
 		}
 
 		vfb->usageFlags |= FB_USAGE_DISPLAYED_FRAMEBUFFER;
+		vfb->last_frame_displayed = gpuStats.numFlips;
 		vfb->dirtyAfterDisplay = false;
 		vfb->reallyDirtyAfterDisplay = false;
 
@@ -757,9 +756,6 @@ namespace DX9 {
 			// Output coordinates
 			float x, y, w, h;
 			CenterRect(&x, &y, &w, &h, 480.0f, 272.0f, (float)PSP_CoreParameter().pixelWidth, (float)PSP_CoreParameter().pixelHeight);
-
-			// TODO ES3: Use glInvalidateFramebuffer to discard depth/stencil data at the end of frame.
-			// and to discard extraFBOs_ after using them.
 
 			const float u0 = offsetX / (float)vfb->bufferWidth;
 			const float v0 = offsetY / (float)vfb->bufferHeight;
@@ -1154,14 +1150,16 @@ namespace DX9 {
 				ReadFramebufferToMemory(vfb, false, 0, 0, vfb->width, vfb->height);
 			}
 
-			if (vfb == displayFramebuf_ || vfb == prevDisplayFramebuf_ || vfb == prevPrevDisplayFramebuf_) {
-				continue;
-			}
 
-			if (age > FBO_OLD_AGE) {
-				INFO_LOG(SCEGE, "Decimating FBO for %08x (%i x %i x %i), age %i", vfb->fb_address, vfb->width, vfb->height, vfb->format, age);
-				DestroyFramebuf(vfb);
-				vfbs_.erase(vfbs_.begin() + i--);
+			// Let's also "decimate" the usageFlags.
+			UpdateFramebufUsage(vfb);
+
+			if (vfb != displayFramebuf_ && vfb != prevDisplayFramebuf_ && vfb != prevPrevDisplayFramebuf_) {
+				if (age > FBO_OLD_AGE) {
+					INFO_LOG(SCEGE, "Decimating FBO for %08x (%i x %i x %i), age %i", vfb->fb_address, vfb->width, vfb->height, vfb->format, age);
+					DestroyFramebuf(vfb);
+					vfbs_.erase(vfbs_.begin() + i--);
+				}
 			}
 		}
 
