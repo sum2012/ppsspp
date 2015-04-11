@@ -21,7 +21,7 @@
 // This is a direct port of Coldbird's code from http://code.google.com/p/aemu/
 // All credit goes to him!
 #include "Core/Core.h"
-#include "Core/MemMap.h"
+#include "Core/MemMapHelpers.h"
 #include "Common/ChunkFile.h"
 #include "Core/MIPS/MIPSCodeUtils.h"
 
@@ -4785,9 +4785,7 @@ int matchingEventThread(int matchingId)
 					if (msg->optlen > 0) opt = ((u8 *)msg) + sizeof(ThreadMessage); //&msg[1]
 
 					// Log Matching Events
-					if (msg->opcode >= 0) {
-						INFO_LOG(SCENET, "EventLoop[%d]: Matching Event [%d=%s] OptSize=%d", matchingId, msg->opcode, getMatchingEventStr(msg->opcode), msg->optlen);
-					}
+					INFO_LOG(SCENET, "EventLoop[%d]: Matching Event [%d=%s] OptSize=%d", matchingId, msg->opcode, getMatchingEventStr(msg->opcode), msg->optlen);
 
 					context->eventlock->unlock(); // Unlock to prevent race-condition with other threads due to recursive lock
 					// Call Event Handler

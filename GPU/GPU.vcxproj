@@ -196,6 +196,7 @@
       <ExcludedFromBuild Condition="'$(Configuration)|$(Platform)'=='Release|x64'">true</ExcludedFromBuild>
     </ClInclude>
     <ClInclude Include="Common\TextureCacheCommon.h" />
+    <ClInclude Include="Common\TextureScalerCommon.h" />
     <ClInclude Include="Common\TransformCommon.h" />
     <ClInclude Include="Common\VertexDecoderCommon.h" />
     <ClInclude Include="Debugger\Breakpoints.h" />
@@ -232,7 +233,6 @@
     <ClInclude Include="Math3D.h" />
     <ClInclude Include="Null\NullGpu.h" />
     <ClInclude Include="Software\Clipper.h" />
-    <ClInclude Include="Software\Colors.h" />
     <ClInclude Include="Software\Lighting.h" />
     <ClInclude Include="Software\Rasterizer.h" />
     <ClInclude Include="Software\SoftGpu.h" />
@@ -254,9 +254,16 @@
       <ExcludedFromBuild Condition="'$(Configuration)|$(Platform)'=='Release|x64'">true</ExcludedFromBuild>
     </ClCompile>
     <ClCompile Include="Common\TextureCacheCommon.cpp" />
+    <ClCompile Include="Common\TextureScalerCommon.cpp" />
     <ClCompile Include="Common\TransformCommon.cpp" />
     <ClCompile Include="Common\SoftwareTransformCommon.cpp" />
     <ClCompile Include="Common\VertexDecoderArm.cpp">
+      <ExcludedFromBuild Condition="'$(Configuration)|$(Platform)'=='Debug|Win32'">true</ExcludedFromBuild>
+      <ExcludedFromBuild Condition="'$(Configuration)|$(Platform)'=='Release|Win32'">true</ExcludedFromBuild>
+      <ExcludedFromBuild Condition="'$(Configuration)|$(Platform)'=='Debug|x64'">true</ExcludedFromBuild>
+      <ExcludedFromBuild Condition="'$(Configuration)|$(Platform)'=='Release|x64'">true</ExcludedFromBuild>
+    </ClCompile>
+    <ClCompile Include="Common\VertexDecoderArm64.cpp">
       <ExcludedFromBuild Condition="'$(Configuration)|$(Platform)'=='Debug|Win32'">true</ExcludedFromBuild>
       <ExcludedFromBuild Condition="'$(Configuration)|$(Platform)'=='Release|Win32'">true</ExcludedFromBuild>
       <ExcludedFromBuild Condition="'$(Configuration)|$(Platform)'=='Debug|x64'">true</ExcludedFromBuild>
@@ -274,7 +281,6 @@
     <ClCompile Include="Directx9\PixelShaderGeneratorDX9.cpp" />
     <ClCompile Include="Directx9\FramebufferDX9.cpp" />
     <ClCompile Include="Directx9\ShaderManagerDX9.cpp" />
-    <ClCompile Include="Directx9\SplineDX9.cpp" />
     <ClCompile Include="Directx9\StateMappingDX9.cpp" />
     <ClCompile Include="Directx9\StencilBufferDX9.cpp" />
     <ClCompile Include="Directx9\TextureCacheDX9.cpp" />
@@ -288,7 +294,6 @@
     <ClCompile Include="GLES\Framebuffer.cpp" />
     <ClCompile Include="GLES\GLES_GPU.cpp" />
     <ClCompile Include="GLES\ShaderManager.cpp" />
-    <ClCompile Include="GLES\Spline.cpp" />
     <ClCompile Include="GLES\StateMapping.cpp" />
     <ClCompile Include="GLES\StencilBuffer.cpp" />
     <ClCompile Include="GLES\TextureCache.cpp" />

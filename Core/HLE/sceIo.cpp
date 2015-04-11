@@ -23,7 +23,7 @@
 #include "Core/Core.h"
 #include "Core/Config.h"
 #include "Core/Debugger/Breakpoints.h"
-#include "Core/MemMap.h"
+#include "Core/MemMapHelpers.h"
 #include "Core/System.h"
 #include "Core/Host.h"
 #include "Core/SaveState.h"
@@ -1071,9 +1071,8 @@ static u32 npdrmLseek(FileNode *f, s32 where, FileMove whence)
 		newPos = f->pgdInfo->data_size+where;
 	}
 
-	if(newPos<0 || newPos>f->pgdInfo->data_size){
+	if (newPos > f->pgdInfo->data_size)
 		return -EINVAL;
-	}
 
 	f->pgdInfo->file_offset = newPos;
 	blockPos = newPos&~(f->pgdInfo->block_size-1);

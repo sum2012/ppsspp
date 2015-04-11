@@ -20,11 +20,12 @@
 #include <vector>
 #include <string>
 
+#include "base/logging.h"
 #include "base/timeutil.h"
 
 #include "Core/Config.h"
 #include "Core/CoreTiming.h"
-#include "Core/MemMap.h"
+#include "Core/MemMapHelpers.h"
 #include "Core/Reporting.h"
 
 #include "Core/Core.h"
@@ -450,8 +451,7 @@ inline void CallSyscallWithFlags(const HLEFunction *info)
 	if ((flags & HLE_NOT_DISPATCH_SUSPENDED) && !__KernelIsDispatchEnabled()) {
 		DEBUG_LOG(HLE, "%s: dispatch suspended", info->name);
 		RETURN(SCE_KERNEL_ERROR_CAN_NOT_WAIT);
-	}
-	else if ((flags & HLE_NOT_IN_INTERRUPT) && __IsInInterrupt()) {
+	} else if ((flags & HLE_NOT_IN_INTERRUPT) && __IsInInterrupt()) {
 		DEBUG_LOG(HLE, "%s: in interrupt", info->name);
 		RETURN(SCE_KERNEL_ERROR_ILLEGAL_CONTEXT);
 	} else {
@@ -581,32 +581,33 @@ size_t hleFormatLogArgs(char *message, size_t sz, const char *argmask) {
 		} else {
 			u32 sp = currentMIPS->r[MIPS_REG_SP];
 			// Goes upward on stack.
-			regval = Memory::Read_U32(sp + (regval - 8) * 4);
+			// NOTE: Currently we only support > 8 for 32-bit integer args.
+			regval = Memory::Read_U32(sp + (reg - 8) * 4);
 		}
 
 		switch (argmask[i]) {
 		case 'p':
-			if (Memory::IsValidAddress(PARAM(reg))) {
-				APPEND_FMT("%08x[%08x]", PARAM(reg), Memory::Read_U32(PARAM(reg)));
+			if (Memory::IsValidAddress(regval)) {
+				APPEND_FMT("%08x[%08x]", regval, Memory::Read_U32(regval));
 			} else {
-				APPEND_FMT("%08x[invalid]", PARAM(reg));
+				APPEND_FMT("%08x[invalid]", regval);
 			}
 			break;
 
 		case 's':
-			if (Memory::IsValidAddress(PARAM(reg))) {
-				APPEND_FMT("%s", Memory::GetCharPointer(PARAM(reg)));
+			if (Memory::IsValidAddress(regval)) {
+				APPEND_FMT("%s", Memory::GetCharPointer(regval));
 			} else {
 				APPEND_FMT("(invalid)");
 			}
 			break;
 
 		case 'x':
-			APPEND_FMT("%08x", PARAM(reg));
+			APPEND_FMT("%08x", regval);
 			break;
 
 		case 'i':
-			APPEND_FMT("%d", PARAM(reg));
+			APPEND_FMT("%d", regval);
 			break;
 
 		case 'X':
@@ -628,7 +629,7 @@ size_t hleFormatLogArgs(char *message, size_t sz, const char *argmask) {
 
 		default:
 			_assert_msg_(HLE, false, "Invalid argmask character: %c", argmask[i]);
-			APPEND_FMT(" -- invalid arg format: %c -- %08x", argmask[i], PARAM(reg));
+			APPEND_FMT(" -- invalid arg format: %c -- %08x", argmask[i], regval);
 			break;
 		}
 		if (i + 1 < n) {

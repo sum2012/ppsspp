@@ -130,7 +130,6 @@ void ArmJit::Comp_FPULS(MIPSOpcode op)
 		VLDR(fpr.R(ft), R0, 0);
 		if (doCheck) {
 			SetJumpTarget(skip);
-			SetCC(CC_AL);
 		}
 #else
 		VLDR(fpr.R(ft), R0, 0);
@@ -174,7 +173,6 @@ void ArmJit::Comp_FPULS(MIPSOpcode op)
 		VSTR(fpr.R(ft), R0, 0);
 		if (doCheck) {
 			SetJumpTarget(skip2);
-			SetCC(CC_AL);
 		}
 #else
 		VSTR(fpr.R(ft), R0, 0);
@@ -260,9 +258,6 @@ void ArmJit::Comp_FPU2op(MIPSOpcode op) {
 
 	int fs = _FS;
 	int fd = _FD;
-
-	// TODO: Most of these mishandle infinity/NAN.
-	// Maybe we can try to track per reg if they *could* be INF/NAN to optimize out?
 
 	switch (op & 0x3f) {
 	case 4:	//F(fd)	   = sqrtf(F(fs));            break; //sqrt
@@ -359,6 +354,9 @@ void ArmJit::Comp_mxc1(MIPSOpcode op)
 	switch ((op >> 21) & 0x1f)
 	{
 	case 0: // R(rt) = FI(fs); break; //mfc1
+		if (rt == MIPS_REG_ZERO) {
+			return;
+		}
 		gpr.MapReg(rt, MAP_DIRTY | MAP_NOINIT);
 		if (fpr.IsMapped(fs)) {
 			VMOV(gpr.R(rt), fpr.R(fs));
@@ -368,6 +366,9 @@ void ArmJit::Comp_mxc1(MIPSOpcode op)
 		return;
 
 	case 2: //cfc1
+		if (rt == MIPS_REG_ZERO) {
+			return;
+		}
 		if (fs == 31) {
 			if (gpr.IsImm(MIPS_REG_FPCOND)) {
 				gpr.MapReg(rt, MAP_DIRTY | MAP_NOINIT);

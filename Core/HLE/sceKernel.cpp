@@ -18,6 +18,7 @@
 #include "Core/Core.h"
 #include "Core/Config.h"
 #include "Core/CwCheat.h"
+#include "Core/MemMapHelpers.h"
 #include "Core/HLE/HLE.h"
 #include "Core/HLE/FunctionWrappers.h"
 #include "Core/MIPS/MIPS.h"
@@ -972,7 +973,7 @@ void Register_ExceptionManagerForKernel()
 
 // Seen in some homebrew
 const HLEFunction UtilsForKernel[] = {
-	{0XC2DF770E, nullptr,                                            "sceKernelIcacheInvalidateRange",            '?', ""        },
+	{0XC2DF770E, WrapI_UI<sceKernelIcacheInvalidateRange>,           "sceKernelIcacheInvalidateRange",            '?', ""        },
 	{0X78934841, nullptr,                                            "sceKernelGzipDecompress",                   '?', ""        },
 	{0XE8DB3CE6, nullptr,                                            "sceKernelDeflateDecompress",                '?', ""        },
 	{0X840259F1, nullptr,                                            "sceKernelUtilsSha1Digest",                  '?', ""        },
@@ -1002,5 +1003,4 @@ void Register_UtilsForKernel()
 void Register_ThreadManForKernel()
 {
 	RegisterModule("ThreadManForKernel", ARRAY_SIZE(ThreadManForKernel), ThreadManForKernel);		
-
 }

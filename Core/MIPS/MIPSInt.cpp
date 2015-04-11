@@ -298,7 +298,8 @@ namespace MIPSInt
 			DelayBranchTo(addr);
 			break;
 		case 9: //jalr
-			R(rd) = PC + 8;
+			if (rd != 0)
+				R(rd) = PC + 8;
 			DelayBranchTo(addr);
 			break;
 		}
@@ -571,7 +572,7 @@ namespace MIPSInt
 			{ //TODO: verify
 				int x = 31;
 				int count=0;
-				while (!(R(rs) & (1<<x)) && x >= 0)
+				while (x >= 0 && !(R(rs) & (1<<x)))
 				{
 					count++;
 					x--;
@@ -583,7 +584,7 @@ namespace MIPSInt
 			{ //TODO: verify
 				int x = 31;
 				int count=0;
-				while ((R(rs) & (1<<x)) && x >= 0)
+				while (x >= 0 && (R(rs) & (1<<x)))
 				{
 					count++;
 					x--;
@@ -661,9 +662,9 @@ namespace MIPSInt
 				HI = (u32)(result>>32);
 			}
 			break;
-		case 16: R(rd) = HI; break; //mfhi
+		case 16: if (rd != 0) R(rd) = HI; break; //mfhi
 		case 17: HI = R(rs); break; //mthi
-		case 18: R(rd) = LO; break; //mflo
+		case 18: if (rd != 0) R(rd) = LO; break; //mflo
 		case 19: LO = R(rs); break; //mtlo
 		case 26: //div
 			{

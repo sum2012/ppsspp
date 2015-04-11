@@ -20,6 +20,8 @@
 #include <queue>
 #include <algorithm>
 
+#include "base/logging.h"
+
 #include "Common/LogManager.h"
 #include "Common/CommonTypes.h"
 #include "Core/HLE/HLE.h"
@@ -28,7 +30,7 @@
 #include "Core/MIPS/MIPSCodeUtils.h"
 #include "Core/MIPS/MIPS.h"
 #include "Core/CoreTiming.h"
-#include "Core/MemMap.h"
+#include "Core/MemMapHelpers.h"
 #include "Core/Reporting.h"
 #include "Common/ChunkFile.h"
 
@@ -2198,7 +2200,7 @@ int __KernelStartThread(SceUID threadToStartID, int argSize, u32 argBlockPtr, bo
 
 	// Now copy argument to stack.
 	if (!forceArgs && Memory::IsValidAddress(argBlockPtr))
-		Memory::Memcpy(sp, Memory::GetPointer(argBlockPtr), argSize);
+		Memory::Memcpy(sp, argBlockPtr, argSize);
 
 	// On the PSP, there's an extra 64 bytes of stack eaten after the args.
 	// This could be stack overflow safety, or just stack eaten by the kernel entry func.

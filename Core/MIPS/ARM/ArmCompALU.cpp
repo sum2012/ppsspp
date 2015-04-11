@@ -216,7 +216,7 @@ namespace MIPSComp
 		} else if (gpr.IsImm(rs) && !symmetric) {
 			Operand2 op2;
 			// For SUB, we can use RSB as a reverse operation.
-			if (TryMakeOperand2(gpr.GetImm(rs), op2) && eval == &EvalSub) {
+			if (eval == &EvalSub && TryMakeOperand2(gpr.GetImm(rs), op2)) {
 				gpr.MapDirtyIn(rd, rt);
 				RSB(gpr.R(rd), gpr.R(rt), op2);
 				return;
@@ -680,12 +680,14 @@ namespace MIPSComp
 
 		switch (op & 63) {
 		case 16: // R(rd) = HI; //mfhi
-			if (gpr.IsImm(MIPS_REG_HI)) {
-				gpr.SetImm(rd, gpr.GetImm(MIPS_REG_HI));
-				break;
+			if (rd != MIPS_REG_ZERO) {
+				if (gpr.IsImm(MIPS_REG_HI)) {
+					gpr.SetImm(rd, gpr.GetImm(MIPS_REG_HI));
+					break;
+				}
+				gpr.MapDirtyIn(rd, MIPS_REG_HI);
+				MOV(gpr.R(rd), gpr.R(MIPS_REG_HI));
 			}
-			gpr.MapDirtyIn(rd, MIPS_REG_HI);
-			MOV(gpr.R(rd), gpr.R(MIPS_REG_HI));
 			break; 
 
 		case 17: // HI = R(rs); //mthi
@@ -698,12 +700,14 @@ namespace MIPSComp
 			break; 
 
 		case 18: // R(rd) = LO; break; //mflo
-			if (gpr.IsImm(MIPS_REG_LO)) {
-				gpr.SetImm(rd, gpr.GetImm(MIPS_REG_LO));
-				break;
+			if (rd != MIPS_REG_ZERO) {
+				if (gpr.IsImm(MIPS_REG_LO)) {
+					gpr.SetImm(rd, gpr.GetImm(MIPS_REG_LO));
+					break;
+				}
+				gpr.MapDirtyIn(rd, MIPS_REG_LO);
+				MOV(gpr.R(rd), gpr.R(MIPS_REG_LO));
 			}
-			gpr.MapDirtyIn(rd, MIPS_REG_LO);
-			MOV(gpr.R(rd), gpr.R(MIPS_REG_LO));
 			break;
 
 		case 19: // LO = R(rs); break; //mtlo

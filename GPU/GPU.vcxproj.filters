@@ -42,9 +42,6 @@
     <ClInclude Include="GPUCommon.h">
       <Filter>Common</Filter>
     </ClInclude>
-    <ClInclude Include="Software\Colors.h">
-      <Filter>Software</Filter>
-    </ClInclude>
     <ClInclude Include="Software\Clipper.h">
       <Filter>Software</Filter>
     </ClInclude>
@@ -183,6 +180,9 @@
     <ClInclude Include="Directx9\DepalettizeShaderDX9.h">
       <Filter>DirectX9</Filter>
     </ClInclude>
+    <ClInclude Include="Common\TextureScalerCommon.h">
+      <Filter>Common</Filter>
+    </ClInclude>
   </ItemGroup>
   <ItemGroup>
     <ClCompile Include="Math3D.cpp">
@@ -249,9 +249,6 @@
       <Filter>DirectX9</Filter>
     </ClCompile>
     <ClCompile Include="Directx9\StateMappingDX9.cpp">
-      <Filter>DirectX9</Filter>
-    </ClCompile>
-    <ClCompile Include="Directx9\SplineDX9.cpp">
       <Filter>DirectX9</Filter>
     </ClCompile>
     <ClCompile Include="Directx9\ShaderManagerDX9.cpp">
@@ -335,9 +332,6 @@
     <ClCompile Include="Common\DrawEngineCommon.cpp">
       <Filter>Common</Filter>
     </ClCompile>
-    <ClCompile Include="GLES\Spline.cpp">
-      <Filter>GLES</Filter>
-    </ClCompile>
     <ClCompile Include="Common\SplineCommon.cpp">
       <Filter>Common</Filter>
     </ClCompile>
@@ -349,6 +343,12 @@
     </ClCompile>
     <ClCompile Include="Directx9\DepalettizeShaderDX9.cpp">
       <Filter>DirectX9</Filter>
+    </ClCompile>
+    <ClCompile Include="Common\VertexDecoderArm64.cpp">
+      <Filter>Common</Filter>
+    </ClCompile>
+    <ClCompile Include="Common\TextureScalerCommon.cpp">
+      <Filter>Common</Filter>
     </ClCompile>
   </ItemGroup>
   <ItemGroup>
