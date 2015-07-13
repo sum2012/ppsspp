@@ -285,8 +285,8 @@ ReplaceBlendType ReplaceBlendWithShader() {
 		case GE_DSTBLEND_DOUBLEINVSRCALPHA:
 			// We can't technically do this correctly (due to clamping) without reading the dst color.
 			// Using a copy isn't accurate either, though, when there's overlap.
-			if (gl_extensions.ANY_shader_framebuffer_fetch)
-				return !gstate_c.allowShaderBlend ? REPLACE_BLEND_PRE_SRC_2X_ALPHA : REPLACE_BLEND_COPY_FBO;
+//			if (gl_extensions.ANY_shader_framebuffer_fetch)
+//				return !gstate_c.allowShaderBlend ? REPLACE_BLEND_PRE_SRC_2X_ALPHA : REPLACE_BLEND_COPY_FBO;
 			return REPLACE_BLEND_PRE_SRC_2X_ALPHA;
 
 		default:
@@ -351,8 +351,8 @@ ReplaceBlendType ReplaceBlendWithShader() {
 				// This means dst alpha/color is used in the src factor.
 				// Unfortunately, copying here causes overlap problems in Silent Hill games (it seems?)
 				// We will just hope that doubling alpha for the dst factor will not clamp too badly.
-				if (gl_extensions.ANY_shader_framebuffer_fetch)
-					return !gstate_c.allowShaderBlend ? REPLACE_BLEND_2X_ALPHA : REPLACE_BLEND_COPY_FBO;
+//				if (gl_extensions.ANY_shader_framebuffer_fetch)
+//					return !gstate_c.allowShaderBlend ? REPLACE_BLEND_2X_ALPHA : REPLACE_BLEND_COPY_FBO;
 				return REPLACE_BLEND_2X_ALPHA;
 			}
 
