@@ -22,6 +22,7 @@
 #include "base/mutex.h"
 #include "base/timeutil.h"
 #include "input/input_state.h"
+#include "profiler/profiler.h"
 
 #include "Core/Core.h"
 #include "Core/Config.h"
@@ -121,13 +122,13 @@ void Core_WaitInactive(int milliseconds) {
 	}
 }
 
-bool UpdateScreenScale(int width, int height) {
+bool UpdateScreenScale(int width, int height, bool smallWindow) {
 	g_dpi = 72;
 	g_dpi_scale = 1.0f;
 #if defined(__SYMBIAN32__)
 	g_dpi_scale = 1.4f;
 #elif defined(_WIN32)
-	if (width < 480 + 80) {
+	if (smallWindow) {
 		g_dpi_scale = 2.0f;
 	}
 #endif

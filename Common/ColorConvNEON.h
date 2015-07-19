@@ -1,4 +1,4 @@
-// Copyright (c) 2012- PPSSPP Project.
+// Copyright (c) 2015- PPSSPP Project.
 
 // This program is free software: you can redistribute it and/or modify
 // it under the terms of the GNU General Public License as published by
@@ -15,7 +15,10 @@
 // Official git repository and contact information can be found at
 // https://github.com/hrydgard/ppsspp and http://www.ppsspp.org/.
 
-#include "Common/KeyMap.h"
-#include "ControlMapping.h"
-#include "DinputDevice.h"
-#include "XinputDevice.h"
+#pragma once
+
+#include "ColorConv.h"
+
+void ConvertRGBA4444ToABGR4444NEON(u16 *dst, const u16 *src, const u32 numPixels);
+void ConvertRGBA5551ToABGR1555NEON(u16 *dst, const u16 *src, const u32 numPixels);
+void ConvertRGB565ToBGR565NEON(u16 *dst, const u16 *src, const u32 numPixels);

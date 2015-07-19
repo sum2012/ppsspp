@@ -1,9 +1,10 @@
 #include <algorithm>
 #include "native/base/mutex.h"
 #include "native/base/timeutil.h"
-#include "GeDisasm.h"
-#include "GPUCommon.h"
-#include "GPUState.h"
+#include "Common/ColorConv.h"
+#include "GPU/GeDisasm.h"
+#include "GPU/GPUCommon.h"
+#include "GPU/GPUState.h"
 #include "ChunkFile.h"
 #include "Core/Config.h"
 #include "Core/CoreTiming.h"
@@ -21,6 +22,7 @@ GPUCommon::GPUCommon() :
 	dumpThisFrame_(false)
 {
 	Reinitialize();
+	SetupColorConv();
 	SetThreadEnabled(g_Config.bSeparateCPUThread);
 }
 
@@ -689,7 +691,7 @@ void GPUCommon::ProcessDLQueueInternal() {
 
 	for (int listIndex = GetNextListIndex(); listIndex != -1; listIndex = GetNextListIndex()) {
 		DisplayList &l = dls[listIndex];
-		DEBUG_LOG(G3D, "Okay, starting DL execution at %08x - stall = %08x", l.pc, l.stall);
+		DEBUG_LOG(G3D, "Starting DL execution at %08x - stall = %08x", l.pc, l.stall);
 		if (!InterpretList(l)) {
 			return;
 		} else {

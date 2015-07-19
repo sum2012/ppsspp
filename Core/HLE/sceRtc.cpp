@@ -330,7 +330,7 @@ static u32 sceRtcGetCurrentClockLocalTime(u32 pspTimePtr)
 	ret.microsecond = tv.tv_usec;
 
 	if (Memory::IsValidAddress(pspTimePtr))
-		Memory::WriteStruct(pspTimePtr, &ret);
+		Memory::WriteStructUnchecked(pspTimePtr, &ret);
 
 	hleEatCycles(2000);
 	hleReSchedule("rtc current clock local");
@@ -346,7 +346,7 @@ static u32 sceRtcSetTick(u32 pspTimePtr, u32 tickPtr)
 
 		ScePspDateTime ret;
 		__RtcTicksToPspTime(ret, ticks);
-		Memory::WriteStruct(pspTimePtr, &ret);
+		Memory::WriteStructUnchecked(pspTimePtr, &ret);
 	}
 	return 0;
 }
@@ -358,7 +358,7 @@ static u32 sceRtcGetTick(u32 pspTimePtr, u32 tickPtr)
 
 	if (Memory::IsValidAddress(pspTimePtr) && Memory::IsValidAddress(tickPtr))
 	{
-		Memory::ReadStruct(pspTimePtr, &pt);
+		Memory::ReadStructUnchecked(pspTimePtr, &pt);
 
 		if (!__RtcValidatePspTime(pt))
 			return SCE_KERNEL_ERROR_INVALID_VALUE;
@@ -459,16 +459,14 @@ static int sceRtcConvertLocalTimeToUTC(u32 tickLocalPtr,u32 tickUTCPtr)
 	{
 		u64 srcTick = Memory::Read_U64(tickLocalPtr);
 		// TODO : Let the user select his timezone / daylight saving instead of taking system param ?
-#if defined(__GLIBC__) || defined(BLACKBERRY) || defined(__SYMBIAN32__)
-		time_t timezone = 0;
-		tm *time = localtime(&timezone);
-		srcTick -= time->tm_gmtoff*1000000ULL;
-#elif defined(_MSC_VER)
+#ifdef _MSC_VER
 		long timezone_val;
 		_get_timezone(&timezone_val);
 		srcTick -= -timezone_val * 1000000ULL;
-#else
-		srcTick -= -timezone * 1000000ULL;
+#elif !defined(_AIX) && !defined(__sgi) && !defined(__hpux)
+		time_t timezone = 0;
+		tm *time = localtime(&timezone);
+		srcTick -= time->tm_gmtoff*1000000ULL;
 #endif
 		Memory::Write_U64(srcTick, tickUTCPtr);
 	}
@@ -486,16 +484,14 @@ static int sceRtcConvertUtcToLocalTime(u32 tickUTCPtr,u32 tickLocalPtr)
 	{
 		u64 srcTick = Memory::Read_U64(tickUTCPtr);
 		// TODO : Let the user select his timezone / daylight saving instead of taking system param ?
-#if defined(__GLIBC__) || defined(BLACKBERRY) || defined(__SYMBIAN32__)
-		time_t timezone = 0;
-		tm *time = localtime(&timezone);
-		srcTick += time->tm_gmtoff*1000000ULL;
-#elif defined(_MSC_VER)
+#ifdef _MSC_VER
 		long timezone_val;
 		_get_timezone(&timezone_val);
 		srcTick += -timezone_val * 1000000ULL;
-#else
-		srcTick += -timezone * 1000000ULL;
+#elif !defined(_AIX) && !defined(__sgi) && !defined(__hpux)
+		time_t timezone = 0;
+		tm *time = localtime(&timezone);
+		srcTick += time->tm_gmtoff*1000000ULL;
 #endif
 		Memory::Write_U64(srcTick, tickLocalPtr);
 	}
@@ -513,7 +509,7 @@ static int sceRtcCheckValid(u32 datePtr)
 	if (Memory::IsValidAddress(datePtr))
 	{
 		ScePspDateTime pt;
-		Memory::ReadStruct(datePtr, &pt);
+		Memory::ReadStructUnchecked(datePtr, &pt);
 		if (pt.year < 1 || pt.year > 9999)
 		{
 			return PSP_TIME_INVALID_YEAR;
@@ -563,7 +559,7 @@ static int sceRtcSetTime_t(u32 datePtr, u32 time)
 	{
 		ScePspDateTime pt;
 		__RtcTicksToPspTime(pt, time*1000000ULL + rtcMagicOffset);
-		Memory::WriteStruct(datePtr, &pt);
+		Memory::WriteStructUnchecked(datePtr, &pt);
 	}
 	else
 	{
@@ -594,7 +590,7 @@ static int sceRtcGetTime_t(u32 datePtr, u32 timePtr)
 	if (Memory::IsValidAddress(datePtr)&&Memory::IsValidAddress(timePtr))
 	{
 		ScePspDateTime pt;
-		Memory::ReadStruct(datePtr, &pt);
+		Memory::ReadStructUnchecked(datePtr, &pt);
 		u32 result = (u32) ((__RtcPspTimeToTicks(pt)-rtcMagicOffset)/1000000ULL);
 		Memory::Write_U32(result, timePtr);
 	}
@@ -611,7 +607,7 @@ static int sceRtcGetTime64_t(u32 datePtr, u32 timePtr)
 	if (Memory::IsValidAddress(datePtr)&&Memory::IsValidAddress(timePtr))
 	{
 		ScePspDateTime pt;
-		Memory::ReadStruct(datePtr, &pt);
+		Memory::ReadStructUnchecked(datePtr, &pt);
 		u64 result = (__RtcPspTimeToTicks(pt)-rtcMagicOffset)/1000000ULL;
 		Memory::Write_U64(result, timePtr);
 	}
@@ -640,7 +636,7 @@ static int sceRtcSetDosTime(u32 datePtr, u32 dosTime)
 		pt.second = (hms << 1) & 0x3E;
 		pt.microsecond = 0;
 
-		Memory::WriteStruct(datePtr, &pt);
+		Memory::WriteStructUnchecked(datePtr, &pt);
 	}
 	else
 	{
@@ -656,7 +652,7 @@ static int sceRtcGetDosTime(u32 datePtr, u32 dosTime)
 	if (Memory::IsValidAddress(datePtr)&&Memory::IsValidAddress(dosTime))
 	{
 		ScePspDateTime pt;
-		Memory::ReadStruct(datePtr, &pt);
+		Memory::ReadStructUnchecked(datePtr, &pt);
 
 		u32 result = 0;
 		if(pt.year < 1980)
@@ -1023,16 +1019,14 @@ static int sceRtcFormatRFC2822LocalTime(u32 outPtr, u32 srcTickPtr)
 	}
 
 	int tz_seconds;
-#if defined(__GLIBC__) || defined(BLACKBERRY) || defined(__SYMBIAN32__)
-		time_t timezone = 0;
-		tm *time = localtime(&timezone);
-		tz_seconds = time->tm_gmtoff;
-#elif defined(_MSC_VER)
+#ifdef _MSC_VER
 		long timezone_val;
 		_get_timezone(&timezone_val);
 		tz_seconds = -timezone_val;
-#else
-		tz_seconds = -timezone;
+#elif !defined(_AIX) && !defined(__sgi) && !defined(__hpux)
+		time_t timezone = 0;
+		tm *time = localtime(&timezone);
+		tz_seconds = time->tm_gmtoff;
 #endif
 
 	DEBUG_LOG(SCERTC, "sceRtcFormatRFC2822LocalTime(%08x, %08x)", outPtr, srcTickPtr);
@@ -1062,16 +1056,14 @@ static int sceRtcFormatRFC3339LocalTime(u32 outPtr, u32 srcTickPtr)
 	}
 
 	int tz_seconds;
-#if defined(__GLIBC__) || defined(BLACKBERRY) || defined(__SYMBIAN32__)
-		time_t timezone = 0;
-		tm *time = localtime(&timezone);
-		tz_seconds = time->tm_gmtoff;
-#elif defined(_MSC_VER)
+#ifdef _MSC_VER
 		long timezone_val;
 		_get_timezone(&timezone_val);
 		tz_seconds = -timezone_val;
-#else
-		tz_seconds = -timezone;
+#elif !defined(_AIX) && !defined(__sgi) && !defined(__hpux)
+		time_t timezone = 0;
+		tm *time = localtime(&timezone);
+		tz_seconds = time->tm_gmtoff;
 #endif
 
 	DEBUG_LOG(SCERTC, "sceRtcFormatRFC3339LocalTime(%08x, %08x)", outPtr, srcTickPtr);

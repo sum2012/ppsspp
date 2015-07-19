@@ -58,6 +58,7 @@ ARCH_FILES := \
   $(SRC)/Common/ArmEmitter.cpp \
   $(SRC)/Common/ArmCPUDetect.cpp \
   $(SRC)/Common/ArmThunk.cpp \
+  $(SRC)/Common/ColorConvNEON.cpp.neon \
   $(SRC)/Core/MIPS/ARM/ArmCompALU.cpp \
   $(SRC)/Core/MIPS/ARM/ArmCompBranch.cpp \
   $(SRC)/Core/MIPS/ARM/ArmCompFPU.cpp \
@@ -81,6 +82,7 @@ ARCH_FILES := \
   $(SRC)/Core/Util/AudioFormatNEON.cpp \
   $(SRC)/Common/Arm64Emitter.cpp \
   $(SRC)/Common/ArmCPUDetect.cpp \
+  $(SRC)/Common/ColorConvNEON.cpp \
   $(SRC)/Core/MIPS/ARM64/Arm64CompALU.cpp \
   $(SRC)/Core/MIPS/ARM64/Arm64CompBranch.cpp \
   $(SRC)/Core/MIPS/ARM64/Arm64CompFPU.cpp \
@@ -220,6 +222,11 @@ EXEC_AND_LIB_FILES := \
   $(SRC)/Core/Host.cpp \
   $(SRC)/Core/Loaders.cpp \
   $(SRC)/Core/PSPLoaders.cpp \
+  $(SRC)/Core/FileLoaders/CachingFileLoader.cpp \
+  $(SRC)/Core/FileLoaders/DiskCachingFileLoader.cpp \
+  $(SRC)/Core/FileLoaders/HTTPFileLoader.cpp \
+  $(SRC)/Core/FileLoaders/LocalFileLoader.cpp \
+  $(SRC)/Core/FileLoaders/RetryingFileLoader.cpp \
   $(SRC)/Core/MemMap.cpp \
   $(SRC)/Core/MemMapFunctions.cpp \
   $(SRC)/Core/Reporting.cpp \
@@ -314,6 +321,7 @@ EXEC_AND_LIB_FILES := \
   $(SRC)/Core/FileSystems/tlzrc.cpp \
   $(SRC)/Core/MIPS/JitCommon/JitCommon.cpp \
   $(SRC)/Core/MIPS/JitCommon/JitBlockCache.cpp \
+  $(SRC)/Core/MIPS/JitCommon/JitState.cpp \
   $(SRC)/Core/Util/AudioFormat.cpp \
   $(SRC)/Core/Util/GameManager.cpp \
   $(SRC)/Core/Util/BlockAllocator.cpp \
@@ -321,10 +329,18 @@ EXEC_AND_LIB_FILES := \
   $(SRC)/Core/Util/PPGeDraw.cpp \
   $(SRC)/git-version.cpp
 
+LOCAL_MODULE := ppsspp_core
+LOCAL_SRC_FILES := $(EXEC_AND_LIB_FILES)
+
+include $(BUILD_STATIC_LIBRARY)
+
+include $(CLEAR_VARS)
+include $(LOCAL_PATH)/Locals.mk
+LOCAL_STATIC_LIBRARIES += ppsspp_core
+
 # These are the files just for ppsspp_jni
 LOCAL_MODULE := ppsspp_jni
 LOCAL_SRC_FILES := \
-  $(EXEC_AND_LIB_FILES) \
   $(SRC)/native/android/app-android.cpp \
   $(SRC)/UI/BackgroundAudio.cpp \
   $(SRC)/UI/DevScreens.cpp \
@@ -333,6 +349,7 @@ LOCAL_SRC_FILES := \
   $(SRC)/UI/MiscScreens.cpp \
   $(SRC)/UI/ReportScreen.cpp \
   $(SRC)/UI/PauseScreen.cpp \
+  $(SRC)/UI/SavedataScreen.cpp \
   $(SRC)/UI/Store.cpp \
   $(SRC)/UI/GamepadEmu.cpp \
   $(SRC)/UI/GameInfoCache.cpp \
@@ -347,12 +364,15 @@ LOCAL_SRC_FILES := \
   $(SRC)/UI/InstallZipScreen.cpp \
   $(SRC)/UI/NativeApp.cpp
 
-include $(BUILD_SHARED_LIBRARY)
+ifneq ($(SKIPAPP),1)
+  include $(BUILD_SHARED_LIBRARY)
+endif
 
 
 ifeq ($(HEADLESS),1)
   include $(CLEAR_VARS)
   include $(LOCAL_PATH)/Locals.mk
+  LOCAL_STATIC_LIBRARIES += ppsspp_core
 
   # Android 5.0 requires PIE for executables.  Only supported on 4.1+, but this is testing anyway.
   LOCAL_CFLAGS += -fPIE
@@ -360,7 +380,6 @@ ifeq ($(HEADLESS),1)
 
   LOCAL_MODULE := ppsspp_headless
   LOCAL_SRC_FILES := \
-    $(EXEC_AND_LIB_FILES) \
     $(SRC)/headless/Headless.cpp \
     $(SRC)/headless/Compare.cpp
 
@@ -370,6 +389,7 @@ endif
 ifeq ($(UNITTEST),1)
   include $(CLEAR_VARS)
   include $(LOCAL_PATH)/Locals.mk
+  LOCAL_STATIC_LIBRARIES += ppsspp_core
 
   # Android 5.0 requires PIE for executables.  Only supported on 4.1+, but this is testing anyway.
   LOCAL_CFLAGS += -fPIE
@@ -424,13 +444,19 @@ ifeq ($(UNITTEST),1)
 	$(SRC)/ext/armips/Util/StringFormat.cpp \
 	$(SRC)/ext/armips/Util/Util.cpp
 
+  ifeq ($(findstring arm64-v8a,$(TARGET_ARCH_ABI)),arm64-v8a)
+    TESTARMEMITTER_FILE = $(SRC)/UnitTest/TestArm64Emitter.cpp
+  else
+    TESTARMEMITTER_FILE = $(SRC)/UnitTest/TestArmEmitter.cpp
+  endif
+
   LOCAL_MODULE := ppsspp_unittest
   LOCAL_SRC_FILES := \
-	$(LIBARMIPS_FILES) \
-    $(EXEC_AND_LIB_FILES) \
-	$(SRC)/Core/MIPS/MIPSAsm.cpp \
+    $(LIBARMIPS_FILES) \
+    $(SRC)/Core/MIPS/MIPSAsm.cpp \
     $(SRC)/UnitTest/JitHarness.cpp \
-    $(SRC)/UnitTest/TestArmEmitter.cpp \
+    $(SRC)/UnitTest/TestVertexJit.cpp \
+    $(TESTARMEMITTER_FILE) \
     $(SRC)/UnitTest/UnitTest.cpp
 
   include $(BUILD_EXECUTABLE)

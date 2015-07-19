@@ -33,6 +33,7 @@ using namespace Arm64Gen;
 //static int temp32; // unused?
 
 static const bool enableDebug = false;
+static const bool enableDisasm = false;
 
 //static bool enableStatistics = false; //unused?
 
@@ -62,7 +63,8 @@ static const bool enableDebug = false;
 // saving them when we call out of the JIT. We will perform regular dynamic register allocation in the rest (x0-x15)
 
 // STATIC ALLOCATION ARM64 (these are all callee-save registers):
-// x24 : Down counter
+// x23 : Down counter
+// x24 : PC save on JR with non-nice delay slot (to be eliminated later?)
 // x25 : MSR/MRS temporary (to be eliminated later)
 // x26 : JIT base reg
 // x27 : MIPS state (Could eliminate by placing the MIPS state right at the memory base)
@@ -70,10 +72,10 @@ static const bool enableDebug = false;
 
 extern volatile CoreState coreState;
 
-void ShowPC(u32 sp, void *membase, void *jitbase) {
+void ShowPC(u32 downcount, void *membase, void *jitbase) {
 	static int count = 0;
 	if (currentMIPS) {
-		ELOG("ShowPC : %08x  Downcount : %08x %d %p %p", currentMIPS->pc, sp, count);
+		ELOG("ShowPC : %08x  Downcount : %08x %d %p %p", currentMIPS->pc, downcount, count, membase, jitbase);
 	} else {
 		ELOG("Universe corrupt?");
 	}
@@ -92,40 +94,49 @@ namespace MIPSComp {
 
 using namespace Arm64JitConstants;
 
-void Arm64Jit::GenerateFixedCode() {
+void Arm64Jit::GenerateFixedCode(const JitOptions &jo) {
+	const u8 *start = nullptr;
+	if (jo.useStaticAlloc) {
+		saveStaticRegisters = AlignCode16();
+		STR(INDEX_UNSIGNED, DOWNCOUNTREG, CTXREG, offsetof(MIPSState, downcount));
+		gpr.EmitSaveStaticAllocs();
+		RET();
+
+		loadStaticRegisters = AlignCode16();
+		gpr.EmitLoadStaticAllocs();
+		LDR(INDEX_UNSIGNED, DOWNCOUNTREG, CTXREG, offsetof(MIPSState, downcount));
+		RET();
+
+		start = saveStaticRegisters;
+	} else {
+		saveStaticRegisters = nullptr;
+		loadStaticRegisters = nullptr;
+	}
+
 	enterCode = AlignCode16();
+	if (!start)
+		start = enterCode;
 
-	const u32 ALL_CALLEE_SAVED = 0x7FF80000;
-	BitSet32 regs_to_save(ALL_CALLEE_SAVED);
-	enterCode = GetCodePtr();
-
+	BitSet32 regs_to_save(Arm64Gen::ALL_CALLEE_SAVED);
+	BitSet32 regs_to_save_fp(Arm64Gen::ALL_CALLEE_SAVED_FP);
 	ABI_PushRegisters(regs_to_save);
-	// TODO: Also push D8-D15, the fp registers we need to save.
+	fp.ABI_PushRegisters(regs_to_save_fp);
 
 	// Fixed registers, these are always kept when in Jit context.
-	// R8 is used to hold flags during delay slots. Not always needed.
-	// R13 cannot be used as it's the stack pointer.
-	// TODO: Consider statically allocating:
-	//   * r2-r4
-	// Really starting to run low on registers already though...
-
-	// R11, R10, R9
 	MOVP2R(MEMBASEREG, Memory::base);
 	MOVP2R(CTXREG, mips_);
 	MOVP2R(JITBASEREG, GetBasePtr());
 
-	// TODO: Preserve ASIMD registers
-
-	RestoreDowncount();
+	LoadStaticRegisters();
 	MovFromPC(SCRATCH1);
 	outerLoopPCInSCRATCH1 = GetCodePtr();
 	MovToPC(SCRATCH1);
 	outerLoop = GetCodePtr();
-		SaveDowncount();  // Advance can change the downcount, so must save/restore
+		SaveStaticRegisters();  // Advance can change the downcount, so must save/restore
 		RestoreRoundingMode(true);
 		QuickCallFunction(SCRATCH1_64, &CoreTiming::Advance);
 		ApplyRoundingMode(true);
-		RestoreDowncount();
+		LoadStaticRegisters();
 		FixupBranch skipToRealDispatch = B(); //skip the sync and compare first time
 
 		dispatcherCheckCoreState = GetCodePtr();
@@ -174,12 +185,12 @@ void Arm64Jit::GenerateFixedCode() {
 				BR(SCRATCH1_64);
 			SetJumpTarget(skipJump);
 
-			// No block found, let's jit
-			SaveDowncount();
+			// No block found, let's jit. I don't think we actually need to save static regs that are in callee-save regs here but whatever.
+			SaveStaticRegisters();
 			RestoreRoundingMode(true);
 			QuickCallFunction(SCRATCH1_64, (void *)&MIPSComp::JitAt);
 			ApplyRoundingMode(true);
-			RestoreDowncount();
+			LoadStaticRegisters();
 
 			B(dispatcherNoCheck); // no point in special casing this
 
@@ -194,23 +205,39 @@ void Arm64Jit::GenerateFixedCode() {
 	SetJumpTarget(badCoreState);
 	breakpointBailout = GetCodePtr();
 
-	// TODO: Restore ASIMD registers
-
-	SaveDowncount();
+	SaveStaticRegisters();
 	RestoreRoundingMode(true);
 
+	fp.ABI_PopRegisters(regs_to_save_fp);
 	ABI_PopRegisters(regs_to_save);
 
 	RET();
-	// Don't forget to zap the instruction cache!
-	FlushIcache();
 
-	if (false) {
-		std::vector<std::string> lines = DisassembleArm64(enterCode, GetCodePtr() - enterCode);
+	// Generate some integer conversion funcs.
+	static const RoundingMode roundModes[8] = {ROUND_N, ROUND_P, ROUND_M, ROUND_Z, ROUND_N, ROUND_P, ROUND_M, ROUND_Z,};
+	for (size_t i = 0; i < ARRAY_SIZE(roundModes); ++i) {
+		convertS0ToSCRATCH1[i] = AlignCode16();
+
+		fp.FCMP(S0, S0);  // Detect NaN
+		fp.FCVTS(S0, S0, roundModes[i]);
+		FixupBranch skip = B(CC_VC);
+		MOVI2R(SCRATCH2, 0x7FFFFFFF);
+		fp.FMOV(S0, SCRATCH2);
+		SetJumpTarget(skip);
+
+		RET();
+	}
+
+	// Leave this at the end, add more stuff above.
+	if (enableDisasm) {
+		std::vector<std::string> lines = DisassembleArm64(start, GetCodePtr() - start);
 		for (auto s : lines) {
 			INFO_LOG(JIT, "%s", s.c_str());
 		}
 	}
+
+	// Don't forget to zap the instruction cache! This must stay at the end of this function.
+	FlushIcache();
 }
 
 }  // namespace MIPSComp

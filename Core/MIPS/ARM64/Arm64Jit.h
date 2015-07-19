@@ -34,32 +34,6 @@
 namespace MIPSComp
 {
 
-struct Arm64JitOptions
-{
-	Arm64JitOptions()  {
-		enableBlocklink = true;
-		useBackJump = false;
-		useForwardJump = false;
-		cachePointers = true;
-		immBranches = false;
-		continueBranches = false;
-		continueJumps = false;
-		continueMaxInstructions = 300;
-
-		useASIMDVFPU = false;  // true
-	}
-
-	bool useASIMDVFPU;
-	bool enableBlocklink;
-	bool useBackJump;
-	bool useForwardJump;
-	bool cachePointers;
-	bool immBranches;
-	bool continueBranches;
-	bool continueJumps;
-	int continueMaxInstructions;
-};
-
 class Arm64Jit : public Arm64Gen::ARM64CodeBlock
 {
 public:
@@ -80,10 +54,6 @@ public:
 	const u8 *DoJit(u32 em_address, JitBlock *b);
 
 	bool DescribeCodePtr(const u8 *ptr, std::string &name);
-
-	void CompileDelaySlot(int flags);
-	void EatInstruction(MIPSOpcode op);
-	void AddContinuedBlock(u32 dest);
 
 	void Comp_RunBlock(MIPSOpcode op);
 	void Comp_ReplacementFunc(MIPSOpcode op);
@@ -207,9 +177,15 @@ public:
 	void EatPrefix() { js.EatPrefix(); }
 
 private:
-	void GenerateFixedCode();
+	void GenerateFixedCode(const JitOptions &jo);
 	void FlushAll();
 	void FlushPrefixV();
+
+	u32 GetCompilerPC();
+	void CompileDelaySlot(int flags);
+	void EatInstruction(MIPSOpcode op);
+	void AddContinuedBlock(u32 dest);
+	MIPSOpcode GetOffsetInstruction(int offset);
 
 	void WriteDownCount(int offset = 0);
 	void WriteDownCountR(Arm64Gen::ARM64Reg reg);
@@ -221,8 +197,8 @@ private:
 
 	bool ReplaceJalTo(u32 dest);
 
-	void SaveDowncount();
-	void RestoreDowncount();
+	void SaveStaticRegisters();
+	void LoadStaticRegisters();
 
 	void WriteExit(u32 destination, int exit_num);
 	void WriteExitDestInR(Arm64Gen::ARM64Reg Reg);
@@ -257,11 +233,11 @@ private:
 
 	// Utils
 	void SetScratch1ToEffectiveAddress(MIPSGPReg rs, s16 offset);
-	void SetCCAndSCRATCH1ForSafeAddress(MIPSGPReg rs, s16 offset, Arm64Gen::ARM64Reg tempReg, bool reverse = false);
+	std::vector<Arm64Gen::FixupBranch> SetScratch1ForSafeAddress(MIPSGPReg rs, s16 offset, Arm64Gen::ARM64Reg tempReg);
 	void Comp_ITypeMemLR(MIPSOpcode op, bool load);
 
 	JitBlockCache blocks;
-	Arm64JitOptions jo;
+	JitOptions jo;
 	JitState js;
 
 	Arm64RegCache gpr;
@@ -286,6 +262,12 @@ public:
 	const u8 *dispatcherNoCheck;
 
 	const u8 *breakpointBailout;
+
+	const u8 *saveStaticRegisters;
+	const u8 *loadStaticRegisters;
+
+	// Indexed by FPCR FZ:RN bits for convenience.  Uses SCRATCH2.
+	const u8 *convertS0ToSCRATCH1[8];
 };
 
 }	// namespace MIPSComp

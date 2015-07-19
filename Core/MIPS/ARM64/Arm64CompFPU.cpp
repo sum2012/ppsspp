@@ -48,7 +48,7 @@
 // All functions should have CONDITIONAL_DISABLE, so we can narrow things down to a file quickly.
 // Currently known non working ones should have DISABLE.
 
-//#define CONDITIONAL_DISABLE { Comp_Generic(op); return; }
+// #define CONDITIONAL_DISABLE { Comp_Generic(op); return; }
 #define CONDITIONAL_DISABLE ;
 #define DISABLE { Comp_Generic(op); return; }
 
@@ -86,7 +86,7 @@ void Arm64Jit::Comp_FPULS(MIPSOpcode op)
 	MIPSGPReg rs = _RS;
 	// u32 addr = R(rs) + offset;
 	// logBlocks = 1;
-	bool doCheck = false;
+	std::vector<FixupBranch> skips;
 	switch (op >> 26) {
 	case 49: //FI(ft) = Memory::Read_U32(addr); break; //lwc1
 		if (!gpr.IsImm(rs) && jo.cachePointers && g_Config.bFastMemory && (offset & 3) == 0 && offset <= 16380 && offset >= 0) {
@@ -106,17 +106,12 @@ void Arm64Jit::Comp_FPULS(MIPSOpcode op)
 			if (g_Config.bFastMemory) {
 				SetScratch1ToEffectiveAddress(rs, offset);
 			} else {
-				SetCCAndSCRATCH1ForSafeAddress(rs, offset, SCRATCH2);
-				doCheck = true;
+				skips = SetScratch1ForSafeAddress(rs, offset, SCRATCH2);
 			}
 			MOVK(SCRATCH1_64, ((uint64_t)Memory::base) >> 32, SHIFT_32);
 		}
-		FixupBranch skip;
-		if (doCheck) {
-			skip = B(CC_EQ);
-		}
-		LDR(INDEX_UNSIGNED, fpr.R(ft), SCRATCH1_64, 0);
-		if (doCheck) {
+		fp.LDR(32, INDEX_UNSIGNED, fpr.R(ft), SCRATCH1_64, 0);
+		for (auto skip : skips) {
 			SetJumpTarget(skip);
 		}
 		fpr.ReleaseSpillLocksAndDiscardTemps();
@@ -139,18 +134,13 @@ void Arm64Jit::Comp_FPULS(MIPSOpcode op)
 			if (g_Config.bFastMemory) {
 				SetScratch1ToEffectiveAddress(rs, offset);
 			} else {
-				SetCCAndSCRATCH1ForSafeAddress(rs, offset, SCRATCH2);
-				doCheck = true;
+				skips = SetScratch1ForSafeAddress(rs, offset, SCRATCH2);
 			}
 			MOVK(SCRATCH1_64, ((uint64_t)Memory::base) >> 32, SHIFT_32);
 		}
-		FixupBranch skip2;
-		if (doCheck) {
-			skip2 = B(CC_EQ);
-		}
-		STR(INDEX_UNSIGNED, fpr.R(ft), SCRATCH1_64, 0);
-		if (doCheck) {
-			SetJumpTarget(skip2);
+		fp.STR(32, INDEX_UNSIGNED, fpr.R(ft), SCRATCH1_64, 0);
+		for (auto skip : skips) {
+			SetJumpTarget(skip);
 		}
 		break;
 
@@ -185,8 +175,8 @@ void Arm64Jit::Comp_FPUComp(MIPSOpcode op) {
 		break;
 	case 3:      // ueq, ngl (equal, unordered)
 		CSET(gpr.R(MIPS_REG_FPCOND), CC_EQ);
-		CSET(SCRATCH1, CC_VS);
-		ORR(gpr.R(MIPS_REG_FPCOND), gpr.R(MIPS_REG_FPCOND), SCRATCH1);
+		// If ordered, use the above result.  If unordered, use ZR+1 (being 1.)
+		CSINC(gpr.R(MIPS_REG_FPCOND), gpr.R(MIPS_REG_FPCOND), WZR, CC_VC);
 		return;
 	case 4:      // olt, lt (less than, ordered)
 		CSET(gpr.R(MIPS_REG_FPCOND), CC_LO);
@@ -284,35 +274,15 @@ void Arm64Jit::Comp_FPU2op(MIPSOpcode op) {
 	case 36: //FsI(fd) = (int)  F(fs);            break; //cvt.w.s
 		fpr.MapDirtyIn(fd, fs);
 		if (js.hasSetRounding) {
-			// Urgh, this looks awfully expensive and bloated.. Perhaps we should have a global function pointer to the right FCVTS to use,
-			// and update it when the rounding mode is switched.
-			fp.FCMP(fpr.R(fs), fpr.R(fs));
-			FixupBranch skip_nan = B(CC_VC);
-			MOVI2R(SCRATCH1, 0x7FFFFFFF);
-			fp.FMOV(fpr.R(fd), SCRATCH1);
-			FixupBranch skip_rest = B();
-			// MIPS Rounding Mode:
-			//   0: Round nearest
-			//   1: Round to zero
-			//   2: Round up (ceil)
-			//   3: Round down (floor)
-			SetJumpTarget(skip_nan);
-			LDR(INDEX_UNSIGNED, SCRATCH1, CTXREG, offsetof(MIPSState, fcr31));
-			ANDI2R(SCRATCH1, SCRATCH1, 3);
-			ADR(SCRATCH2_64, 12);  // PC + 12 = address of first FCVTS below
-			ADD(SCRATCH2_64, SCRATCH2_64, EncodeRegTo64(SCRATCH1), ArithOption(SCRATCH2_64, ST_LSL, 3));
-			BR(SCRATCH2_64);  // choose from the four variants below!
-			fp.FCVTS(fpr.R(fd), fpr.R(fs), ROUND_N);
-			FixupBranch skip1 = B();
-			fp.FCVTS(fpr.R(fd), fpr.R(fs), ROUND_Z);
-			FixupBranch skip2 = B();
-			fp.FCVTS(fpr.R(fd), fpr.R(fs), ROUND_P);
-			FixupBranch skip3 = B();
-			fp.FCVTS(fpr.R(fd), fpr.R(fs), ROUND_M);
-			SetJumpTarget(skip1);
-			SetJumpTarget(skip2);
-			SetJumpTarget(skip3);
-			SetJumpTarget(skip_rest);
+			// We're just going to defer to our cached func.  Here's the arg.
+			fp.FMOV(S0, fpr.R(fs));
+
+			MOVP2R(SCRATCH1_64, &js.currentRoundingFunc);
+			LDR(INDEX_UNSIGNED, SCRATCH1_64, SCRATCH1_64, 0);
+
+			BLR(SCRATCH1_64);
+
+			fp.FMOV(fpr.R(fd), S0);
 		} else {
 			fp.FCMP(fpr.R(fs), fpr.R(fs));
 			fp.FCVTS(fpr.R(fd), fpr.R(fs), ROUND_Z);
@@ -364,10 +334,7 @@ void Arm64Jit::Comp_mxc1(MIPSOpcode op)
 			} else {
 				gpr.MapDirtyIn(rt, MIPS_REG_FPCOND);
 				LDR(INDEX_UNSIGNED, gpr.R(rt), CTXREG, offsetof(MIPSState, fcr31));
-				// BFI(gpr.R(rt), gpr.R(MIPS_REG_FPCOND), 23, 1);
-				ANDI2R(SCRATCH1, gpr.R(MIPS_REG_FPCOND), 1); // Just in case
-				ANDI2R(gpr.R(rt), gpr.R(rt), ~(0x1 << 23), SCRATCH2);  // SCRATCHREG2 won't be used, this turns into a simple BIC.
-				ORR(gpr.R(rt), gpr.R(rt), SCRATCH1, ArithOption(gpr.R(rt), ST_LSL, 23));
+				BFI(gpr.R(rt), gpr.R(MIPS_REG_FPCOND), 23, 1);
 			}
 		} else if (fs == 0) {
 			gpr.SetImm(rt, MIPSState::FCR0_VALUE);
@@ -417,9 +384,7 @@ void Arm64Jit::Comp_mxc1(MIPSOpcode op)
 			// TODO: Technically, should mask by 0x0181FFFF.  Maybe just put all of FCR31 in the reg?
 			STR(INDEX_UNSIGNED, gpr.R(rt), CTXREG, offsetof(MIPSState, fcr31));
 			if (!wasImm) {
-				// UBFX(gpr.R(MIPS_REG_FPCOND), gpr.R(rt), 23, 1);
-				LSR(SCRATCH1, gpr.R(rt), 23);
-				ANDI2R(gpr.R(MIPS_REG_FPCOND), SCRATCH1, 1);
+				UBFX(gpr.R(MIPS_REG_FPCOND), gpr.R(rt), 23, 1);
 			}
 			UpdateRoundingMode();
 			ApplyRoundingMode();

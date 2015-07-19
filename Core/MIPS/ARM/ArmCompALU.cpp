@@ -39,7 +39,7 @@ using namespace MIPSAnalyst;
 // All functions should have CONDITIONAL_DISABLE, so we can narrow things down to a file quickly.
 // Currently known non working ones should have DISABLE.
 
-//#define CONDITIONAL_DISABLE { Comp_Generic(op); return; }
+// #define CONDITIONAL_DISABLE { Comp_Generic(op); return; }
 #define CONDITIONAL_DISABLE ;
 #define DISABLE { Comp_Generic(op); return; }
 
@@ -209,6 +209,7 @@ namespace MIPSComp
 				return;
 			}
 			// If rd is rhs, we may have lost it in the MapDirtyIn().  lhs was kept.
+			// This means the rhsImm value was never flushed to rhs, and would be garbage.
 			if (rd == rhs) {
 				// Luckily, it was just an imm.
 				gpr.SetImm(rhs, rhsImm);
@@ -573,7 +574,7 @@ namespace MIPSComp
 				} else {
 					gpr.MapDirtyIn(rt, rs, false);
 #ifdef HAVE_ARMV7
-					BFI(gpr.R(rt), gpr.R(rs), pos, size-pos);
+					BFI(gpr.R(rt), gpr.R(rs), pos, size - pos);
 #else
 					ANDI2R(SCRATCHREG1, gpr.R(rs), sourcemask, SCRATCHREG2);
 					ANDI2R(gpr.R(rt), gpr.R(rt), destmask, SCRATCHREG2);

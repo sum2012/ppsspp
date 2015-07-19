@@ -72,7 +72,8 @@
 #include "Core/Config.h"
 #include "Core/CoreTiming.h"
 
-#include "native/gfx_es2/gl_state.h"
+#include "gfx_es2/gl_state.h"
+#include "profiler/profiler.h"
 
 #include "GPU/Math3D.h"
 #include "GPU/GPUState.h"
@@ -334,6 +335,8 @@ void TransformDrawEngine::DecodeVerts() {
 }
 
 void TransformDrawEngine::DecodeVertsStep() {
+	PROFILE_THIS_SCOPE("vertdec");
+
 	const int i = decodeCounter_;
 
 	const DeferredDrawCall &dc = drawCalls[i];
@@ -575,6 +578,7 @@ void TransformDrawEngine::FreeBuffer(GLuint buf) {
 }
 
 void TransformDrawEngine::DoFlush() {
+	PROFILE_THIS_SCOPE("flush");
 	gpuStats.numFlushes++;
 	gpuStats.numTrackedVertexArrays = (int)vai_.size();
 
@@ -809,7 +813,7 @@ rotateVBO:
 		SoftwareTransform(
 			prim, decoded, indexGen.VertexCount(),
 			dec_->VertexType(), inds, GE_VTYPE_IDX_16BIT, dec_->GetDecVtxFmt(),
-			maxIndex, framebufferManager_, textureCache_, transformed, transformedExpanded, drawBuffer, numTrans, drawIndexed, &result);
+			maxIndex, framebufferManager_, textureCache_, transformed, transformedExpanded, drawBuffer, numTrans, drawIndexed, &result, 1.0);
 
 		if (result.action == SW_DRAW_PRIMITIVES) {
 			if (result.setStencil) {

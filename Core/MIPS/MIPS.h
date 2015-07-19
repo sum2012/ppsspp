@@ -170,12 +170,15 @@ public:
 	// If vfpuCtrl (prefixes) get mysterious values, check the VFPU regcache code.
 	u32 vfpuCtrl[16];
 
+	// ARM64 wants lo/hi to be aligned to 64 bits from the base of this struct.
+	u32 padLoHi;
+
 	union {
 		struct {
 			u32 pc;
 
-			u32 hi;
 			u32 lo;
+			u32 hi;
 
 			u32 fcr31; //fpu control register
 			u32 fpcond;  // cache the cond flag of fcr31  (& 1 << 23)

@@ -190,6 +190,16 @@ static void DataProcessingImmediate(uint32_t w, uint64_t addr, Instruction *inst
 	}
 }
 
+static const char *GetSystemRegName(int o0, int op1, int CRn, int CRm, int op2) {
+	if (o0 == 3 && op1 == 3 && CRn == 4 && CRm == 2 && op2 == 0) {
+		return "nzcv";
+	} else if (o0 == 3 && op1 == 3 && CRn == 4 && CRm == 4 && op2 == 0) {
+		return "fpsr";
+	} else {
+		return "(unknown)";
+	}
+}
+
 static void BranchExceptionAndSystem(uint32_t w, uint64_t addr, Instruction *instr) {
 	int Rt = w & 0x1f;
 	int Rn = (w >> 5) & 0x1f;
@@ -222,7 +232,20 @@ static void BranchExceptionAndSystem(uint32_t w, uint64_t addr, Instruction *ins
 			snprintf(instr->text, sizeof(instr->text), "(exception-gen %08x)", w);
 		}
 	} else if (((w >> 20) & 0xFFC) == 0xD50) {
-		snprintf(instr->text, sizeof(instr->text), "(system-reg %08x)", w);
+		bool L = (w >> 21) & 1;  // read
+		// Could check them all at once, but feels better to do it like the manual says.
+		int o0 = (w >> 19) & 3;
+		int op1 = (w >> 16) & 7;
+		int CRn = (w >> 12) & 0xF;
+		int CRm = (w >> 8) & 0xf;
+		int op2 = (w >> 5) & 0x7;
+		const char *sysreg = GetSystemRegName(o0, op1, CRn, CRm, op2);
+		if (L) {
+			snprintf(instr->text, sizeof(instr->text), "mrs x%d, %s", Rt, sysreg);
+		} else {
+			snprintf(instr->text, sizeof(instr->text), "msr %s, x%d", sysreg, Rt);
+		}
+
 	} else if (((w >> 25) & 0x7F) == 0x6B) {
 		int op = (w >> 21) & 3;
 		const char *opname[4] = { "b", "bl", "ret", "(unk)" };
@@ -330,8 +353,9 @@ static void LoadStore(uint32_t w, uint64_t addr, Instruction *instr) {
 		} else if (index_type == 3) {
 			snprintf(instr->text, sizeof(instr->text), "%s %c%d, %c%d, [x%d, #%d]!", load ? "ldp" : "stp", r, Rt, r, Rt2, Rn, offset);
 			return;
-		} else {
-			snprintf(instr->text, sizeof(instr->text), "(loadstore-pair %08x)", w);
+		} else if (index_type == 0) {
+			// LDNP/STNP (ldp/stp with non-temporal hint). Automatically signed offset.
+			snprintf(instr->text, sizeof(instr->text), "%s %c%d, %c%d, [x%d, #%d]", load ? "ldnp" : "stnp", r, Rt, r, Rt2, Rn, offset);
 			return;
 		}
 	}
@@ -437,7 +461,11 @@ static void DataProcessingRegister(uint32_t w, uint64_t addr, Instruction *instr
 			// The rest are 64-bit accumulator, 32-bit operands
 			char sign = (op31 >> 2) ? 'u' : 's';
 			int opn = (op31 & 0x3) << 1 | o0;
-			snprintf(instr->text, sizeof(instr->text), "%c%s x%d, x%d, w%d, w%d", sign, opnames[opn], Rd, Rn, Rm, Ra);
+			if (opn < 4 && Ra == 31) {
+				snprintf(instr->text, sizeof(instr->text), "%cmull x%d, w%d, w%d", sign, Rd, Rn, Rm);
+			} else {
+				snprintf(instr->text, sizeof(instr->text), "%c%s x%d, w%d, w%d, x%d", sign, opnames[opn], Rd, Rn, Rm, Ra);
+			}
 		}
 	} else {
 		// Logical (extended register)
@@ -533,7 +561,7 @@ static void FPandASIMD1(uint32_t w, uint64_t addr, Instruction *instr) {
 					opname = !(sz & 1) ? "bit" : "bif";
 				}
 			}
-			int size = (fp ? ((sz & 1) ? 64 : 32) : (sz << 3));
+			int size = (fp ? ((sz & 1) ? 64 : 32) : (8 << sz));
 
 			if (opname != nullptr) {
 				if (!nosize) {
@@ -555,8 +583,109 @@ static void FPandASIMD1(uint32_t w, uint64_t addr, Instruction *instr) {
 			break;
 		case 2:
 			if (((w >> 17) & 0xf) == 0) {
-				// Very similar to scalar two-reg misc. can we share code?
-				snprintf(instr->text, sizeof(instr->text), "(asimd vector two-reg misc %08x)", w);
+				int opcode = (w >> 12) & 0x1F;
+				int sz = (w >> 22) & 3;
+				int Q = GetQ(w);
+				int U = GetU(w);
+				const char *opname = nullptr;
+				bool narrow = false;
+				if (!U) {
+					switch (opcode) {
+					case 0: opname = "rev64"; break;
+					case 1: opname = "rev16"; break;
+					case 2: opname = "saddlp"; break;
+					case 3: opname = "suqadd"; break;
+					case 4: opname = "cls"; break;
+					case 5: opname = "cnt"; break;
+					case 6: opname = "sadalp"; break;
+					case 7: opname = "sqabs"; break;
+					case 8: opname = "cmgt"; break;
+					case 9: opname = "cmeq"; break;
+					case 0xA: opname = "cmlt"; break;
+					case 0xB: opname = "abs"; break;
+					case 0x12: opname = "xtn"; narrow = true; break;
+					case 0x14: opname = "sqxtn"; narrow = true; break;
+					default:
+						if (!(sz & 0x2)) {
+							switch (opcode) {
+							case 0x16: opname = "fcvtn"; break;
+							case 0x17: opname = "fcvtl"; break;
+							case 0x18: opname = "frintn"; break;
+							case 0x19: opname = "frintm"; break;
+							case 0x1a: opname = "fcvtns"; break;
+							case 0x1b: opname = "fcvtms"; break;
+							case 0x1c: opname = "fcvtas"; break;
+							case 0x1d: opname = "scvtf"; break;
+							}
+						} else {
+							switch (opcode) {
+							case 0xc: opname = "fcmgt"; break;
+							case 0xd: opname = "fcmeq"; break;
+							case 0xe: opname = "fcmlt"; break;
+							case 0xf: opname = "fabs"; break;
+							case 0x18: opname = "frintp"; break;
+							case 0x19: opname = "frintz"; break;
+							case 0x1a: opname = "fcvtps"; break;
+							case 0x1b: opname = "fcvtzs"; break;
+							case 0x1c: opname = "urepce"; break;
+							case 0x1d: opname = "frepce"; break;
+							}
+						}
+					}
+				} else {
+					switch (opcode) {
+					case 0: opname = "rev32"; break;
+					case 2: opname = "uaddlp"; break;
+					case 3: opname = "usqadd"; break;
+					case 4: opname = "clz"; break;
+					case 6: opname = "uadalp"; break;
+					case 7: opname = "sqneg"; break;
+					case 8: opname = "cmge"; break; // with zero
+					case 9: opname = "cmle"; break; // with zero
+					case 0xB: opname = "neg"; break;
+					case 0x12: opname = "sqxtun"; narrow = true; break;
+					case 0x13: opname = "shll"; break;
+					case 0x14: opname = "uqxtn"; narrow = true; break;
+					case 5: if (sz == 0) opname = "not"; else opname = "rbit"; break;
+					default:
+						if (!(sz & 0x2)) {
+							switch (opcode) {
+							case 0x16: opname = "fcvtxn"; break;
+							case 0x18: opname = "frinta"; break;
+							case 0x19: opname = "frintx"; break;
+							case 0x1a: opname = "fcvtnu"; break;
+							case 0x1b: opname = "fcvtmu"; break;
+							case 0x1c: opname = "fcvtau"; break;
+							case 0x1d: opname = "ucvtf"; break;
+							}
+						} else {
+							switch (opcode) {
+							case 0xC: opname = "fcmge"; break;  // with zero
+							case 0xD: opname = "fcmge"; break;  // with zero
+							case 0xF: opname = "fneg"; break;
+							case 0x19: opname = "frinti"; break;
+							case 0x1a: opname = "fcvtpu"; break;
+							case 0x1b: opname = "fcvtzu"; break;
+							case 0x1c: opname = "ursqrte"; break;
+							case 0x1d: opname = "frsqrte"; break;
+							case 0x1f: opname = "fsqrt"; break;
+							}
+						}
+					}
+				}
+
+				if (opname) {
+					if (narrow) {
+						int esize = 8 << sz;
+						const char *two = "";  // todo
+						snprintf(instr->text, sizeof(instr->text), "%s%s.%d.%d d%d, q%d", opname, two, esize, esize * 2, Rd, Rn);
+					} else {
+						snprintf(instr->text, sizeof(instr->text), "%s", opname);
+					}
+				} else {
+					// Very similar to scalar two-reg misc. can we share code?
+					snprintf(instr->text, sizeof(instr->text), "(asimd vector two-reg misc %08x)", w);
+				}
 			} else if (((w >> 17) & 0xf) == 1) {
 				snprintf(instr->text, sizeof(instr->text), "(asimd across lanes %08x)", w);
 			} else {
@@ -625,6 +754,20 @@ static void FPandASIMD1(uint32_t w, uint64_t addr, Instruction *instr) {
 					int shift = 2 * esize - ((immh << 3) | immb);
 					int r = Q ? 'q' : 'd';
 					snprintf(instr->text, sizeof(instr->text), "%ccvtf %c%d.s, %c%d.s, #%d", U ? 'u' : 's', r, Rd, r, Rn, shift);
+				} else if (opname && (!strcmp(opname, "ushr") || !strcmp(opname, "sshr"))) {
+					int esize = (8 << HighestSetBit(immh));
+					int shift = esize * 2 - ((immh << 3) | immb);
+					int r = Q ? 'q' : 'd';
+					snprintf(instr->text, sizeof(instr->text), "%s.%d %c%d, %c%d, #%d", opname, esize, r, Rd, r, Rn, shift);
+				} else if (opname && (!strcmp(opname, "rshrn") || !strcmp(opname, "shrn"))) {
+					int esize = (8 << HighestSetBit(immh));
+					int shift = esize * 2 - ((immh << 3) | immb);
+					snprintf(instr->text, sizeof(instr->text), "%s%s.%d.%d d%d, q%d, #%d", opname, two, esize, esize * 2, Rd, Rn, shift);
+				} else if (opname && (!strcmp(opname, "shl"))) {
+					int esize = (8 << HighestSetBit(immh));
+					int r = Q ? 'q' : 'd';
+					int shift = ((immh << 3) | immb) - esize;
+					snprintf(instr->text, sizeof(instr->text), "%s.%d %c%d, %c%d, #%d", opname, esize, r, Rd, r, Rn, shift);
 				} else if (opname) {
 					int esize = (8 << HighestSetBit(immh));
 					int shift = ((immh << 3) | immb) - esize;

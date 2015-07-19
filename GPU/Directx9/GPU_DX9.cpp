@@ -19,6 +19,7 @@
 
 #include "Common/ChunkFile.h"
 #include "base/logging.h"
+#include "profiler/profiler.h"
 #include "Core/Debugger/Breakpoints.h"
 #include "Core/MemMapHelpers.h"
 #include "Core/MIPS/MIPS.h"
@@ -601,6 +602,7 @@ void DIRECTX9_GPU::CopyDisplayToOutputInternal() {
 
 // Maybe should write this in ASM...
 void DIRECTX9_GPU::FastRunLoop(DisplayList &list) {
+	PROFILE_THIS_SCOPE("gpuloop");
 	const CommandInfo *cmdInfo = cmdInfo_;
 	for (; downcount > 0; --downcount) {
 		// We know that display list PCs have the upper nibble == 0 - no need to mask the pointer
@@ -707,6 +709,12 @@ void DIRECTX9_GPU::Execute_VertexTypeSkinning(u32 op, u32 diff) {
 		gstate.vertType ^= diff;
 		if (diff & (GE_VTYPE_TC_MASK | GE_VTYPE_THROUGH_MASK))
 			shaderManager_->DirtyUniform(DIRTY_UVSCALEOFFSET);
+		// In this case, we may be doing weights and morphs.
+		// Update any bone matrix uniforms so it uses them correctly.
+		if ((op & GE_VTYPE_MORPHCOUNT_MASK) != 0) {
+			shaderManager_->DirtyUniform(gstate_c.deferredVertTypeDirty);
+			gstate_c.deferredVertTypeDirty = 0;
+		}
 	}
 }
 
@@ -1269,6 +1277,11 @@ void DIRECTX9_GPU::Execute_BoneMtxNum(u32 op, u32 diff) {
 				break;
 			}
 		}
+
+		const int numPlusCount = (op & 0x7F) + i;
+		for (int num = op & 0x7F; num < numPlusCount; num += 12) {
+			gstate_c.deferredVertTypeDirty |= DIRTY_BONEMATRIX0 << (num / 12);
+		}
 	}
 
 	const int count = i;
@@ -1288,6 +1301,8 @@ void DIRECTX9_GPU::Execute_BoneMtxData(u32 op, u32 diff) {
 		if (!g_Config.bSoftwareSkinning || (gstate.vertType & GE_VTYPE_MORPHCOUNT_MASK) != 0) {
 			Flush();
 			shaderManager_->DirtyUniform(DIRTY_BONEMATRIX0 << (num / 12));
+		} else {
+			gstate_c.deferredVertTypeDirty |= DIRTY_BONEMATRIX0 << (num / 12);
 		}
 		((u32 *)gstate.boneMatrix)[num] = newVal;
 	}
@@ -1776,15 +1791,18 @@ void DIRECTX9_GPU::Execute_Generic(u32 op, u32 diff) {
 }
 
 void DIRECTX9_GPU::FastLoadBoneMatrix(u32 target) {
+	const int num = gstate.boneMatrixNumber & 0x7F;
+	const int mtxNum = num / 12;
+	uint32_t uniformsToDirty = DIRTY_BONEMATRIX0 << mtxNum;
+	if ((num - 12 * mtxNum) != 0) {
+		uniformsToDirty |= DIRTY_BONEMATRIX0 << ((mtxNum + 1) & 7);
+	}
+
 	if (!g_Config.bSoftwareSkinning || (gstate.vertType & GE_VTYPE_MORPHCOUNT_MASK) != 0) {
 		Flush();
-		const int num = gstate.boneMatrixNumber & 0x7F;
-		int mtxNum = num / 12;
-		uint32_t uniformsToDirty = DIRTY_BONEMATRIX0 << mtxNum;
-		if ((num - 12 * mtxNum) != 0) {
-			uniformsToDirty |= DIRTY_BONEMATRIX0 << ((mtxNum + 1) & 7);
-		}
 		shaderManager_->DirtyUniform(uniformsToDirty);
+	} else {
+		gstate_c.deferredVertTypeDirty |= uniformsToDirty;
 	}
 	gstate.FastLoadBoneMatrix(target);
 }

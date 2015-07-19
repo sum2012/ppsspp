@@ -28,7 +28,7 @@ struct MIPSInfo {
 	explicit MIPSInfo(u64 v) : value(v) {
 	}
 
-	u64 operator & (const u32 &arg) const {
+	u64 operator & (const u64 &arg) const {
 		return value & arg;
 	}
 
@@ -100,6 +100,7 @@ struct MIPSInfo {
 
 #define IN_VS           0x010000000000ULL
 #define IN_VT           0x020000000000ULL
+#define OUT_FT          0x040000000000ULL
 
 #define OUT_VD          0x100000000000ULL
 

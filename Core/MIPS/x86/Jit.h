@@ -41,19 +41,6 @@ namespace MIPSComp
 // This is called when Jit hits a breakpoint.  Returns 1 when hit.
 u32 JitBreakpoint();
 
-struct JitOptions
-{
-	JitOptions();
-
-	bool enableBlocklink;
-	bool immBranches;
-	bool continueBranches;
-	bool continueJumps;
-	int continueMaxInstructions;
-	bool enableVFPUSIMD;
-	bool reserveR15ForAsm;
-};
-
 // TODO: Hmm, humongous.
 struct RegCacheState {
 	GPRRegCacheState gpr;
@@ -192,6 +179,8 @@ private:
 	void FlushPrefixV();
 	void WriteDowncount(int offset = 0);
 	bool ReplaceJalTo(u32 dest);
+
+	u32 GetCompilerPC();
 	// See CompileDelaySlotFlags for flags.
 	void CompileDelaySlot(int flags, RegCacheState *state = NULL);
 	void CompileDelaySlot(int flags, RegCacheState &state) {
@@ -199,6 +188,7 @@ private:
 	}
 	void EatInstruction(MIPSOpcode op);
 	void AddContinuedBlock(u32 dest);
+	MIPSOpcode GetOffsetInstruction(int offset);
 
 	void WriteExit(u32 destination, int exit_num);
 	void WriteExitDestInReg(Gen::X64Reg reg);
@@ -238,6 +228,7 @@ private:
 	static Gen::CCFlags FlipCCFlag(Gen::CCFlags flag);
 	static Gen::CCFlags SwapCCFlag(Gen::CCFlags flag);
 
+	void CopyFPReg(Gen::X64Reg dst, Gen::OpArg src);
 	void CompFPTriArith(MIPSOpcode op, void (XEmitter::*arith)(Gen::X64Reg reg, Gen::OpArg), bool orderMatters);
 	void CompFPComp(int lhs, int rhs, u8 compare, bool allowNaN = false);
 	void CompVrotShuffle(u8 *dregs, int imm, int n, bool negSin);

@@ -48,7 +48,7 @@
 #include "file/zip_read.h"
 #include "thread/thread.h"
 #include "net/http_client.h"
-#include "gfx_es2/gl_state.h"  // should've been only for screenshot - but actually not, cleanup?
+#include "gfx_es2/gl_state.h"  // TODO: Get rid of this from here
 #include "gfx_es2/draw_text.h"
 #include "gfx/gl_lost_manager.h"
 #include "gfx/texture.h"
@@ -57,6 +57,7 @@
 #include "math/fast/fast_math.h"
 #include "math/math_util.h"
 #include "math/lin/matrix4x4.h"
+#include "profiler/profiler.h"
 #include "thin3d/thin3d.h"
 #include "ui/ui.h"
 #include "ui/screen.h"
@@ -70,6 +71,7 @@
 #include "Common/MemArena.h"
 #include "Core/Config.h"
 #include "Core/Core.h"
+#include "Core/FileLoaders/DiskCachingFileLoader.h"
 #include "Core/Host.h"
 #include "Core/SaveState.h"
 #include "Core/Screenshot.h"
@@ -295,7 +297,7 @@ void NativeInit(int argc, const char *argv[],
 #elif defined(BLACKBERRY) || defined(IOS)
 	// Packed assets are included in app
 	VFSRegister("", new DirectoryAssetReader(external_directory));
-#elif defined(__APPLE__) || (defined(__linux__) && !defined(ANDROID))
+#elif !defined(MOBILE_DEVICE) && !defined(_WIN32)
 	VFSRegister("", new DirectoryAssetReader((File::GetExeDirectory() + "assets/").c_str()));
 	VFSRegister("", new DirectoryAssetReader((File::GetExeDirectory()).c_str()));
 	VFSRegister("", new DirectoryAssetReader("/usr/share/ppsspp/assets/"));
@@ -446,7 +448,7 @@ void NativeInit(int argc, const char *argv[],
 	else
 		i18nrepo.LoadIni(g_Config.sLanguageIni, langOverridePath);
 
-	I18NCategory *d = GetI18NCategory("DesktopUI");
+	I18NCategory *des = GetI18NCategory("DesktopUI");
 	// Note to translators: do not translate this/add this to PPSSPP-lang's files.
 	// It's intended to be custom for every user.
 	// Only add it to your own personal copies of PPSSPP.
@@ -454,7 +456,7 @@ void NativeInit(int argc, const char *argv[],
 	// TODO: Could allow a setting to specify a font file to load?
 	// TODO: Make this a constant if we can sanely load the font on other systems?
 	AddFontResourceEx(L"assets/Roboto-Condensed.ttf", FR_PRIVATE, NULL);
-	g_Config.sFont = d->T("Font", "Roboto");
+	g_Config.sFont = des->T("Font", "Roboto");
 #endif
 
 	if (!boot_filename.empty() && stateToLoad != NULL)
@@ -759,9 +761,15 @@ void HandleGlobalMessage(const std::string &msg, const std::string &value) {
 	if (msg == "inputDeviceConnected") {
 		KeyMap::NotifyPadConnected(value);
 	}
+
+	if (msg == "cacheDir") {
+		DiskCachingFileLoaderCache::SetCacheDir(value);
+	}
 }
 
 void NativeUpdate(InputState &input) {
+	PROFILE_END_FRAME();
+
 	{
 		lock_guard lock(pendingMutex);
 		for (size_t i = 0; i < pendingMessages.size(); i++) {

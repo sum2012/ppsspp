@@ -15,10 +15,12 @@
 // Official git repository and contact information can be found at
 // https://github.com/hrydgard/ppsspp and http://www.ppsspp.org/.
 
-
 #pragma once
 
 #include "CommonTypes.h"
+#include "ColorConvNEON.h"
+
+void SetupColorConv();
 
 inline u8 Convert4To8(u8 v) {
 	// Swizzle bits: 00001234 -> 12341234
@@ -104,7 +106,13 @@ void convert5551_dx9(u16* data, u32* out, int width, int l, int u);
 
 // "Complete" set of color conversion functions between the usual formats.
 
+typedef void (*Convert16bppTo16bppFunc)(u16 *dst, const u16 *src, const u32 numPixels);
+typedef void (*Convert16bppTo32bppFunc)(u32 *dst, const u16 *src, const u32 numPixels);
+typedef void (*Convert32bppTo16bppFunc)(u16 *dst, const u32 *src, const u32 numPixels);
+typedef void (*Convert32bppTo32bppFunc)(u32 *dst, const u32 *src, const u32 numPixels);
+
 void ConvertBGRA8888ToRGBA8888(u32 *dst, const u32 *src, const u32 numPixels);
+#define ConvertRGBA8888ToBGRA8888 ConvertBGRA8888ToRGBA8888
 
 void ConvertRGBA8888ToRGBA5551(u16 *dst, const u32 *src, const u32 numPixels);
 void ConvertRGBA8888ToRGB565(u16 *dst, const u32 *src, const u32 numPixels);
@@ -118,6 +126,34 @@ void ConvertRGBA565ToRGBA8888(u32 *dst, const u16 *src, const u32 numPixels);
 void ConvertRGBA5551ToRGBA8888(u32 *dst, const u16 *src, const u32 numPixels);
 void ConvertRGBA4444ToRGBA8888(u32 *dst, const u16 *src, const u32 numPixels);
 
-void ConvertBGRA4444ToRGBA8888(u32 *dst, const u16 *src, const u32 numPixels);
-void ConvertBGRA5551ToRGBA8888(u32 *dst, const u16 *src, const u32 numPixels);
-void ConvertBGR565ToRGBA8888(u32 *dst, const u16 *src, const u32 numPixels);
+void ConvertRGBA4444ToBGRA8888(u32 *dst, const u16 *src, const u32 numPixels);
+void ConvertRGBA5551ToBGRA8888(u32 *dst, const u16 *src, const u32 numPixels);
+void ConvertRGB565ToBGRA8888(u32 *dst, const u16 *src, const u32 numPixels);
+
+void ConvertRGBA4444ToABGR4444Basic(u16 *dst, const u16 *src, const u32 numPixels);
+void ConvertRGBA5551ToABGR1555Basic(u16 *dst, const u16 *src, const u32 numPixels);
+void ConvertRGB565ToBGR565Basic(u16 *dst, const u16 *src, const u32 numPixels);
+
+#if defined(ARM64)
+#define ConvertRGBA4444ToABGR4444 ConvertRGBA4444ToABGR4444NEON
+#elif !defined(ARM)
+#define ConvertRGBA4444ToABGR4444 ConvertRGBA4444ToABGR4444Basic
+#else
+extern Convert16bppTo16bppFunc ConvertRGBA4444ToABGR4444;
+#endif
+
+#if defined(ARM64)
+#define ConvertRGBA5551ToABGR1555 ConvertRGBA5551ToABGR1555NEON
+#elif !defined(ARM)
+#define ConvertRGBA5551ToABGR1555 ConvertRGBA5551ToABGR1555Basic
+#else
+extern Convert16bppTo16bppFunc ConvertRGBA5551ToABGR1555;
+#endif
+
+#if defined(ARM64)
+#define ConvertRGB565ToBGR565 ConvertRGB565ToBGR565NEON
+#elif !defined(ARM)
+#define ConvertRGB565ToBGR565 ConvertRGB565ToBGR565Basic
+#else
+extern Convert16bppTo16bppFunc ConvertRGB565ToBGR565;
+#endif

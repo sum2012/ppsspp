@@ -17,14 +17,25 @@
 
 #pragma once
 
+enum CheckAlphaResult {
+	// These are intended to line up with TexCacheEntry::STATUS_ALPHA_UNKNOWN, etc.
+	CHECKALPHA_FULL = 0,
+	CHECKALPHA_ANY = 4,
+	CHECKALPHA_ZERO = 8,
+};
+
 #include "Common/Common.h"
 #include "Core/MemMap.h"
 #include "GPU/ge_constants.h"
 #include "GPU/GPUState.h"
+#include "GPU/Common/TextureDecoderNEON.h"
 
 void SetupTextureDecoder();
 
-#ifdef _M_SSE
+void DoSwizzleTex16(const u32 *ysrcp, u8 *texptr, int bxc, int byc, u32 pitch, u32 rowWidth);
+
+// For SSE, we statically link the SSE2 algorithms.
+#if defined(_M_SSE)
 u32 QuickTexHashSSE2(const void *checkp, u32 size);
 #define DoQuickTexHash QuickTexHashSSE2
 
@@ -42,6 +53,20 @@ typedef u64 ReliableHashType;
 #define DoReliableHash XXH32
 typedef u32 ReliableHashType;
 #endif
+
+// For ARM64, NEON is mandatory, so we also statically link.
+#elif defined(ARM64)
+#define DoQuickTexHash QuickTexHashNEON
+#define DoUnswizzleTex16 DoUnswizzleTex16NEON
+#define DoReliableHash32 ReliableHash32NEON
+
+// TODO: NEON version of this too?  Since we're 64, might be faster.
+typedef u64 (*ReliableHash64Func)(const void *input, size_t len, u64 seed);
+extern ReliableHash64Func DoReliableHash64;
+
+#define DoReliableHash DoReliableHash32
+typedef u32 ReliableHashType;
+
 #else
 typedef u32 (*QuickTexHashFunc)(const void *checkp, u32 size);
 extern QuickTexHashFunc DoQuickTexHash;
@@ -58,6 +83,12 @@ extern ReliableHash64Func DoReliableHash64;
 #define DoReliableHash DoReliableHash32
 typedef u32 ReliableHashType;
 #endif
+
+CheckAlphaResult CheckAlphaRGBA8888Basic(const u32 *pixelData, int stride, int w, int h);
+CheckAlphaResult CheckAlphaABGR4444Basic(const u32 *pixelData, int stride, int w, int h);
+CheckAlphaResult CheckAlphaRGBA4444Basic(const u32 *pixelData, int stride, int w, int h);
+CheckAlphaResult CheckAlphaABGR1555Basic(const u32 *pixelData, int stride, int w, int h);
+CheckAlphaResult CheckAlphaRGBA5551Basic(const u32 *pixelData, int stride, int w, int h);
 
 // All these DXT structs are in the reverse order, as compared to PC.
 // On PC, alpha comes before color, and interpolants are before the tile data.

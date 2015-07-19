@@ -84,7 +84,6 @@ public:
 
 	bool bAutoRun;  // start immediately
 	bool bBrowse; // when opening the emulator, immediately show a file browser
-	bool bHomebrewStore;
 
 	// General
 	int iNumWorkerThreads;
@@ -127,7 +126,9 @@ public:
 	int iLockedCPUSpeed;
 	bool bAutoSaveSymbolMap;
 	bool bCacheFullIsoInRam;
-	int iScreenRotation;
+
+	int iScreenRotation;  // The rotation angle of the PPSSPP UI. Only supported on Android and possibly other mobile platforms.
+	int iInternalScreenRotation;  // The internal screen rotation angle. Useful for vertical SHMUPs and similar.
 
 	std::string sReportHost;
 	std::vector<std::string> recentIsos;
@@ -372,6 +373,9 @@ public:
 	bool bSkipDeadbeefFilling;
 	bool bFuncHashMap;
 
+	// Volatile development settings
+	bool bShowFrameProfiler;
+
 	std::string currentDirectory;
 	std::string externalDirectory; 
 	std::string memStickDirectory;
@@ -413,7 +417,10 @@ public:
 	void ResetControlLayout();
 
 	void GetReportingInfo(UrlEncoder &data);
-	
+
+	bool IsPortrait() const {
+		return (iInternalScreenRotation == ROTATION_LOCKED_VERTICAL || iInternalScreenRotation == ROTATION_LOCKED_VERTICAL180) && iRenderingMode != 0;
+	}
 	
 private:
 	std::string gameId_;

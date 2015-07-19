@@ -77,13 +77,13 @@ struct FPURegMIPS {
 };
 
 namespace MIPSComp {
-	struct Arm64JitOptions;
+	struct JitOptions;
 	struct JitState;
 }
 
 class Arm64RegCacheFPU {
 public:
-	Arm64RegCacheFPU(MIPSState *mips, MIPSComp::JitState *js, MIPSComp::Arm64JitOptions *jo);
+	Arm64RegCacheFPU(MIPSState *mips, MIPSComp::JitState *js, MIPSComp::JitOptions *jo);
 	~Arm64RegCacheFPU() {}
 
 	void Init(Arm64Gen::ARM64XEmitter *emitter, Arm64Gen::ARM64FloatEmitter *fp);
@@ -114,6 +114,9 @@ public:
 	void MapDirtyIn(MIPSReg rd, MIPSReg rs, bool avoidLoad = true);
 	void MapDirtyInIn(MIPSReg rd, MIPSReg rs, MIPSReg rt, bool avoidLoad = true);
 	bool IsMapped(MIPSReg r);
+	bool IsMappedV(MIPSReg r) { return IsMapped((MIPSReg)(r + 32)); }
+	bool IsInRAM(MIPSReg r);
+	bool IsInRAMV(MIPSReg r) { return IsInRAM((MIPSReg)(r + 32)); }
 	void FlushArmReg(Arm64Gen::ARM64Reg r);
 	void FlushR(MIPSReg r);
 	void DiscardR(MIPSReg r);
@@ -145,13 +148,14 @@ public:
 	void SetEmitter(Arm64Gen::ARM64XEmitter *emitter, Arm64Gen::ARM64FloatEmitter *fp) { emit_ = emitter; fp_ = fp; }
 
 	int GetMipsRegOffset(MIPSReg r);
-
-private:
-	MIPSReg GetTempR();
-	const Arm64Gen::ARM64Reg *GetMIPSAllocationOrder(int &count);
 	int GetMipsRegOffsetV(MIPSReg r) {
 		return GetMipsRegOffset(r + 32);
 	}
+
+private:
+	Arm64Gen::ARM64Reg ARM64RegForFlush(int r);
+	MIPSReg GetTempR();
+	const Arm64Gen::ARM64Reg *GetMIPSAllocationOrder(int &count);
 
 	void SetupInitialRegs();
 
@@ -159,7 +163,7 @@ private:
 	Arm64Gen::ARM64XEmitter *emit_;
 	Arm64Gen::ARM64FloatEmitter *fp_;
 	MIPSComp::JitState *js_;
-	MIPSComp::Arm64JitOptions *jo_;
+	MIPSComp::JitOptions *jo_;
 
 	int numARMFpuReg_;
 	int qTime_;

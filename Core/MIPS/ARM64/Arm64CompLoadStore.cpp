@@ -64,8 +64,7 @@
 #define CONDITIONAL_DISABLE ;
 #define DISABLE { Comp_Generic(op); return; }
 
-namespace MIPSComp
-{
+namespace MIPSComp {
 	using namespace Arm64Gen;
 	using namespace Arm64JitConstants;
 	
@@ -78,9 +77,52 @@ namespace MIPSComp
 		}
 	}
 
-	void Arm64Jit::SetCCAndSCRATCH1ForSafeAddress(MIPSGPReg rs, s16 offset, ARM64Reg tempReg, bool reverse) {
+	std::vector<FixupBranch> Arm64Jit::SetScratch1ForSafeAddress(MIPSGPReg rs, s16 offset, ARM64Reg tempReg) {
+		std::vector<FixupBranch> skips;
+
 		SetScratch1ToEffectiveAddress(rs, offset);
-		// TODO
+
+		// We can do this a little smarter by shifting out the lower 8 bits, since blocks are 0x100 aligned.
+		// PSP_GetUserMemoryEnd() is dynamic, but the others encode to imms just fine.
+		// So we only need to safety check the one value.
+
+		if ((PSP_GetUserMemoryEnd() & 0x000FFFFF) == 0) {
+			// In other words, shift right 8.
+			UBFX(tempReg, SCRATCH1, 8, 24);
+			// Now check if we're higher than that.
+			CMPI2R(tempReg, PSP_GetUserMemoryEnd() >> 8);
+		} else {
+			// Compare first using the tempReg, then shift into it.
+			CMPI2R(SCRATCH1, PSP_GetUserMemoryEnd(), tempReg);
+			UBFX(tempReg, SCRATCH1, 8, 24);
+		}
+		skips.push_back(B(CC_HS));
+
+		// If its higher than memory start and we didn't skip yet, it must be good.  Hurray.
+		CMPI2R(tempReg, PSP_GetKernelMemoryBase() >> 8);
+		FixupBranch inRAM = B(CC_HS);
+
+		// If we got here and it's higher, then it's between VRAM and RAM - skip.
+		CMPI2R(tempReg, PSP_GetVidMemEnd() >> 8);
+		skips.push_back(B(CC_HS));
+
+		// And if it's higher the VRAM and we're still here again, it's in VRAM.
+		CMPI2R(tempReg, PSP_GetVidMemBase() >> 8);
+		FixupBranch inVRAM = B(CC_HS);
+
+		// Last gap, this is between SRAM and VRAM.  Skip it.
+		CMPI2R(tempReg, PSP_GetScratchpadMemoryEnd() >> 8);
+		skips.push_back(B(CC_HS));
+
+		// And for lower than SRAM, we just skip again.
+		CMPI2R(tempReg, PSP_GetScratchpadMemoryBase() >> 8);
+		skips.push_back(B(CC_LO));
+
+		// At this point, we're either in SRAM (above) or in RAM/VRAM.
+		SetJumpTarget(inRAM);
+		SetJumpTarget(inVRAM);
+
+		return skips;
 	}
 
 	void Arm64Jit::Comp_ITypeMemLR(MIPSOpcode op, bool load) {
@@ -90,15 +132,12 @@ namespace MIPSComp
 		MIPSGPReg rs = _RS;
 		int o = op >> 26;
 
-		DISABLE;
-		// TODO: For some reason I can't get this to work on ARM64.
-		if (!js.inDelaySlot && false) {
+		if (!js.inDelaySlot) {
 			// Optimisation: Combine to single unaligned load/store
 			bool isLeft = (o == 34 || o == 42);
-			MIPSOpcode nextOp = Memory::Read_Instruction(js.compilerPC + 4);
+			MIPSOpcode nextOp = GetOffsetInstruction(1);
 			// Find a matching shift in opposite direction with opposite offset.
-			if (nextOp == (isLeft ? (op.encoding + (4 << 26) - 3)
-				: (op.encoding - (4 << 26) + 3))) {
+			if (nextOp == (isLeft ? (op.encoding + (4 << 26) - 3) : (op.encoding - (4 << 26) + 3))) {
 				EatInstruction(nextOp);
 				nextOp = MIPSOpcode(((load ? 35 : 43) << 26) | ((isLeft ? nextOp : op) & 0x03FFFFFF)); //lw, sw
 				Comp_ITypeMem(nextOp);
@@ -106,9 +145,10 @@ namespace MIPSComp
 			}
 		}
 
+		DISABLE;
+
 		u32 iaddr = gpr.IsImm(rs) ? offset + gpr.GetImm(rs) : 0xFFFFFFFF;
-		bool doCheck = false;
-		FixupBranch skip;
+		std::vector<FixupBranch> skips;
 
 		if (gpr.IsImm(rs) && Memory::IsValidAddress(iaddr)) {
 			u32 addr = iaddr;
@@ -173,13 +213,9 @@ namespace MIPSComp
 		}
 
 		if (false && !g_Config.bFastMemory && rs != MIPS_REG_SP) {
-			SetCCAndSCRATCH1ForSafeAddress(rs, offset, SCRATCH2, true);
-			doCheck = true;
+			skips = SetScratch1ForSafeAddress(rs, offset, SCRATCH2);
 		} else {
 			SetScratch1ToEffectiveAddress(rs, offset);
-		}
-		if (doCheck) {
-			skip = B();
 		}
 
 		// Need temp regs.  TODO: Get from the regcache?
@@ -254,7 +290,7 @@ namespace MIPSComp
 			POP2(EncodeRegTo64(LR_SCRATCH3), EncodeRegTo64(LR_SCRATCH4));
 		}
 
-		if (doCheck) {
+		for (auto skip : skips) {
 			SetJumpTarget(skip);
 		}
 	}
@@ -273,8 +309,27 @@ namespace MIPSComp
 		}
 
 		u32 iaddr = gpr.IsImm(rs) ? offset + gpr.GetImm(rs) : 0xFFFFFFFF;
-		bool doCheck = false;
+		std::vector<FixupBranch> skips;
 		ARM64Reg addrReg = SCRATCH1;
+
+		int dataSize = 4;
+		switch (o) {
+		case 37:
+		case 33:
+			dataSize = 2;
+			break;
+		case 36:
+		case 32:
+			dataSize = 1;
+			break;
+			// Store
+		case 41:
+			dataSize = 2;
+			break;
+		case 40:
+			dataSize = 1;
+			break;
+		}
 
 		switch (o) {
 		case 32: //lb
@@ -291,21 +346,29 @@ namespace MIPSComp
 				int offsetRange = 0x3ff;
 				if (o == 41 || o == 33 || o == 37 || o == 32)
 					offsetRange = 0xff;  // 8 bit offset only
-
-				if (!gpr.IsImm(rs) && rs != rt && (offset <= offsetRange) && offset >= 0) {
+				if (!gpr.IsImm(rs) && rs != rt && (offset <= offsetRange) && offset >= 0 &&
+					  (dataSize == 1 || (offset & (dataSize - 1)) == 0)) {  // Check that the offset is aligned to the access size as that's required for INDEX_UNSIGNED encodings. we can get here through fallback from lwl/lwr
 					gpr.SpillLock(rs, rt);
 					gpr.MapRegAsPointer(rs);
-					gpr.MapReg(rt, load ? MAP_NOINIT : 0);
+
+					Arm64Gen::ARM64Reg ar;
+					if (!load && gpr.IsImm(rt) && gpr.GetImm(rt) == 0) {
+						// Can just store from the zero register directly.
+						ar = WZR;
+					} else {
+						gpr.MapReg(rt, load ? MAP_NOINIT : 0);
+						ar = gpr.R(rt);
+					}
 					switch (o) {
-					case 35: LDR(INDEX_UNSIGNED, gpr.R(rt), gpr.RPtr(rs), offset); break;
-					case 37: LDRH(INDEX_UNSIGNED, gpr.R(rt), gpr.RPtr(rs), offset); break;
-					case 33: LDRSH(INDEX_UNSIGNED, gpr.R(rt), gpr.RPtr(rs), offset); break;
-					case 36: LDRB(INDEX_UNSIGNED, gpr.R(rt), gpr.RPtr(rs), offset); break;
-					case 32: LDRSB(INDEX_UNSIGNED, gpr.R(rt), gpr.RPtr(rs), offset); break;
+					case 35: LDR(INDEX_UNSIGNED, ar, gpr.RPtr(rs), offset); break;
+					case 37: LDRH(INDEX_UNSIGNED, ar, gpr.RPtr(rs), offset); break;
+					case 33: LDRSH(INDEX_UNSIGNED, ar, gpr.RPtr(rs), offset); break;
+					case 36: LDRB(INDEX_UNSIGNED, ar, gpr.RPtr(rs), offset); break;
+					case 32: LDRSB(INDEX_UNSIGNED, ar, gpr.RPtr(rs), offset); break;
 						// Store
-					case 43: STR(INDEX_UNSIGNED, gpr.R(rt), gpr.RPtr(rs), offset); break;
-					case 41: STRH(INDEX_UNSIGNED, gpr.R(rt), gpr.RPtr(rs), offset); break;
-					case 40: STRB(INDEX_UNSIGNED, gpr.R(rt), gpr.RPtr(rs), offset); break;
+					case 43: STR(INDEX_UNSIGNED, ar, gpr.RPtr(rs), offset); break;
+					case 41: STRH(INDEX_UNSIGNED, ar, gpr.RPtr(rs), offset); break;
+					case 40: STRB(INDEX_UNSIGNED, ar, gpr.RPtr(rs), offset); break;
 					}
 					gpr.ReleaseSpillLocks();
 					break;
@@ -330,13 +393,10 @@ namespace MIPSComp
 				}
 			} else {
 				_dbg_assert_msg_(JIT, !gpr.IsImm(rs), "Invalid immediate address?  CPU bug?");
-				_dbg_assert_msg_(JIT, g_Config.bFastMemory, "Slow mem doesn't work yet in ARM64! Turn on Fast Memory in system settings");
 				load ? gpr.MapDirtyIn(rt, rs) : gpr.MapInIn(rt, rs);
 
 				if (!g_Config.bFastMemory && rs != MIPS_REG_SP) {
-					// TODO: This doesn't work!
-					SetCCAndSCRATCH1ForSafeAddress(rs, offset, SCRATCH2);
-					doCheck = true;
+					skips = SetScratch1ForSafeAddress(rs, offset, SCRATCH2);
 				} else {
 					SetScratch1ToEffectiveAddress(rs, offset);
 				}
@@ -355,14 +415,10 @@ namespace MIPSComp
 			case 41: STRH(gpr.R(rt), MEMBASEREG, addrReg); break;
 			case 40: STRB(gpr.R(rt), MEMBASEREG, addrReg); break;
 			}
-			/*
-			if (doCheck) {
-				if (load) {
-					SetCC(CC_EQ);
-					MOVI2R(gpr.R(rt), 0);
-				}
-				SetCC(CC_AL);
-			}*/
+			for (auto skip : skips) {
+				SetJumpTarget(skip);
+				// TODO: Could clear to zero here on load, if skipping this for good reads.
+			}
 			break;
 		case 34: //lwl
 		case 38: //lwr
@@ -378,6 +434,37 @@ namespace MIPSComp
 	}
 
 	void Arm64Jit::Comp_Cache(MIPSOpcode op) {
-		DISABLE;
+//		int imm = (s16)(op & 0xFFFF);
+//		int rs = _RS;
+//		int addr = R(rs) + imm;
+		int func = (op >> 16) & 0x1F;
+
+		// It appears that a cache line is 0x40 (64) bytes, loops in games
+		// issue the cache instruction at that interval.
+
+		// These codes might be PSP-specific, they don't match regular MIPS cache codes very well
+		switch (func) {
+			// Icache
+		case 8:
+			// Invalidate the instruction cache at this address
+			DISABLE;
+			break;
+			// Dcache
+		case 24:
+			// "Create Dirty Exclusive" - for avoiding a cacheline fill before writing to it.
+			// Will cause garbage on the real machine so we just ignore it, the app will overwrite the cacheline.
+			break;
+		case 25:  // Hit Invalidate - zaps the line if present in cache. Should not writeback???? scary.
+			// No need to do anything.
+			break;
+		case 27:  // D-cube. Hit Writeback Invalidate.  Tony Hawk Underground 2
+			break;
+		case 30:  // GTA LCS, a lot. Fill (prefetch).   Tony Hawk Underground 2
+			break;
+
+		default:
+			DISABLE;
+			break;
+		}
 	}
 }

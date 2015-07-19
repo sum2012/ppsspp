@@ -18,6 +18,8 @@
 #include <algorithm>
 #include <cstring>
 
+#include "profiler/profiler.h"
+
 #include "Common/ColorConv.h"
 #include "Core/Host.h"
 #include "Core/MemMap.h"
@@ -75,14 +77,14 @@ TextureCache::TextureCache() : cacheSizeEstimate_(0), secondCacheSizeEstimate_(0
 	tmpTexBuf16.resize(1024 * 512);  // 1MB
 	tmpTexBufRearrange.resize(1024 * 512);   // 2MB
 
-	// Aren't these way too big?
-	clutBufConverted_ = (u32 *)AllocateAlignedMemory(4096 * sizeof(u32), 16);  // 16KB
-	clutBufRaw_ = (u32 *)AllocateAlignedMemory(4096 * sizeof(u32), 16);  // 16KB
+	// TODO: Clamp down to 256/1KB?  Need to check mipmapShareClut and clamp loadclut.
+	clutBufConverted_ = (u32 *)AllocateAlignedMemory(1024 * sizeof(u32), 16);  // 4KB
+	clutBufRaw_ = (u32 *)AllocateAlignedMemory(1024 * sizeof(u32), 16);  // 4KB
 
 	// Zap these so that reads from uninitialized parts of the CLUT look the same in
 	// release and debug
-	memset(clutBufConverted_, 0, 4096 * sizeof(u32));
-	memset(clutBufRaw_, 0, 4096 * sizeof(u32));
+	memset(clutBufConverted_, 0, 1024 * sizeof(u32));
+	memset(clutBufRaw_, 0, 1024 * sizeof(u32));
 
 	glGetFloatv(GL_MAX_TEXTURE_MAX_ANISOTROPY_EXT, &maxAnisotropyLevel);
 	SetupTextureDecoder();
@@ -787,128 +789,18 @@ static void ConvertColors(void *dstBuf, const void *srcBuf, GLuint dstFmt, int n
 	u32 *dst = (u32 *)dstBuf;
 	switch (dstFmt) {
 	case GL_UNSIGNED_SHORT_4_4_4_4:
-		{
-#ifdef _M_SSE
-			const __m128i maskB = _mm_set1_epi16(0x00F0);
-			const __m128i maskG = _mm_set1_epi16(0x0F00);
-
-			__m128i *srcp = (__m128i *)src;
-			__m128i *dstp = (__m128i *)dst;
-			const int sseChunks = numPixels / 8;
-			for (int i = 0; i < sseChunks; ++i) {
-				__m128i c = _mm_load_si128(&srcp[i]);
-				__m128i v = _mm_srli_epi16(c, 12);
-				v = _mm_or_si128(v, _mm_and_si128(_mm_srli_epi16(c, 4), maskB));
-				v = _mm_or_si128(v, _mm_and_si128(_mm_slli_epi16(c, 4), maskG));
-				v = _mm_or_si128(v, _mm_slli_epi16(c, 12));
-				_mm_store_si128(&dstp[i], v);
-			}
-			// The remainder is done in chunks of 2, SSE was chunks of 8.
-			int i = sseChunks * 8 / 2;
-#else
-			int i = 0;
-			// TODO: NEON.
-#endif
-			for (; i < (numPixels + 1) / 2; i++) {
-				u32 c = src[i];
-				dst[i] = ((c >> 12) & 0x000F000F) |
-				       ((c >> 4)  & 0x00F000F0) |
-				       ((c << 4)  & 0x0F000F00) |
-				       ((c << 12) & 0xF000F000);
-			}
-		}
+		ConvertRGBA4444ToABGR4444((u16 *)dst, (const u16 *)src, numPixels);
 		break;
 	// Final Fantasy 2 uses this heavily in animated textures.
 	case GL_UNSIGNED_SHORT_5_5_5_1:
-		{
-#ifdef _M_SSE
-			const __m128i maskB = _mm_set1_epi16(0x003E);
-			const __m128i maskG = _mm_set1_epi16(0x07C0);
-
-			__m128i *srcp = (__m128i *)src;
-			__m128i *dstp = (__m128i *)dst;
-			const int sseChunks = numPixels / 8;
-			for (int i = 0; i < sseChunks; ++i) {
-				__m128i c = _mm_load_si128(&srcp[i]);
-				__m128i v = _mm_srli_epi16(c, 15);
-				v = _mm_or_si128(v, _mm_and_si128(_mm_srli_epi16(c, 9), maskB));
-				v = _mm_or_si128(v, _mm_and_si128(_mm_slli_epi16(c, 1), maskG));
-				v = _mm_or_si128(v, _mm_slli_epi16(c, 11));
-				_mm_store_si128(&dstp[i], v);
-			}
-			// The remainder is done in chunks of 2, SSE was chunks of 8.
-			int i = sseChunks * 8 / 2;
-#else
-			int i = 0;
-			// TODO: NEON.
-#endif
-			for (; i < (numPixels + 1) / 2; i++) {
-				u32 c = src[i];
-				dst[i] = ((c >> 15) & 0x00010001) |
-				       ((c >> 9)  & 0x003E003E) |
-				       ((c << 1)  & 0x07C007C0) |
-				       ((c << 11) & 0xF800F800);
-			}
-		}
+		ConvertRGBA5551ToABGR1555((u16 *)dst, (const u16 *)src, numPixels);
 		break;
 	case GL_UNSIGNED_SHORT_5_6_5:
-		{
-#ifdef _M_SSE
-			const __m128i maskG = _mm_set1_epi16(0x07E0);
-
-			__m128i *srcp = (__m128i *)src;
-			__m128i *dstp = (__m128i *)dst;
-			const int sseChunks = numPixels / 8;
-			for (int i = 0; i < sseChunks; ++i) {
-				__m128i c = _mm_load_si128(&srcp[i]);
-				__m128i v = _mm_srli_epi16(c, 11);
-				v = _mm_or_si128(v, _mm_and_si128(c, maskG));
-				v = _mm_or_si128(v, _mm_slli_epi16(c, 11));
-				_mm_store_si128(&dstp[i], v);
-			}
-			// The remainder is done in chunks of 2, SSE was chunks of 8.
-			int i = sseChunks * 8 / 2;
-#else
-			int i = 0;
-			// TODO: NEON.
-#endif
-			for (; i < (numPixels + 1) / 2; i++) {
-				u32 c = src[i];
-				dst[i] = ((c >> 11) & 0x001F001F) |
-				       ((c >> 0)  & 0x07E007E0) |
-				       ((c << 11) & 0xF800F800);
-			}
-		}
+		ConvertRGB565ToBGR565((u16 *)dst, (const u16 *)src, numPixels);
 		break;
 	default:
 		if (UseBGRA8888()) {
-#ifdef _M_SSE
-			const __m128i maskGA = _mm_set1_epi32(0xFF00FF00);
-
-			__m128i *srcp = (__m128i *)src;
-			__m128i *dstp = (__m128i *)dst;
-			const int sseChunks = numPixels / 4;
-			for (int i = 0; i < sseChunks; ++i) {
-				__m128i c = _mm_load_si128(&srcp[i]);
-				__m128i rb = _mm_andnot_si128(maskGA, c);
-				c = _mm_and_si128(c, maskGA);
-
-				__m128i b = _mm_srli_epi32(rb, 16);
-				__m128i r = _mm_slli_epi32(rb, 16);
-				c = _mm_or_si128(_mm_or_si128(c, r), b);
-				_mm_store_si128(&dstp[i], c);
-			}
-			// The remainder starts right after those done via SSE.
-			int i = sseChunks * 4;
-#else
-			int i = 0;
-#endif
-			for (; i < numPixels; i++) {
-				u32 c = src[i];
-				dst[i] = ((c >> 16) & 0x000000FF) |
-				         ((c >> 0)  & 0xFF00FF00) |
-				         ((c << 16) & 0x00FF0000);
-			}
+			ConvertRGBA8888ToBGRA8888(dst, src, numPixels);
 		} else {
 			// No need to convert RGBA8888, right order already
 			if (dst != src)
@@ -951,25 +843,35 @@ inline bool TextureCache::TexCacheEntry::Matches(u16 dim2, u8 format2, int maxLe
 
 void TextureCache::LoadClut() {
 	u32 clutAddr = gstate.getClutAddress();
+	clutTotalBytes_ = gstate.getClutLoadBytes();
 	if (Memory::IsValidAddress(clutAddr)) {
+		// It's possible for a game to (successfully) access outside valid memory.
+		u32 bytes = Memory::ValidSize(clutAddr, clutTotalBytes_);
 #ifdef _M_SSE
-		int numBlocks = gstate.getClutLoadBlocks();
-		clutTotalBytes_ = numBlocks * 32;
-		const __m128i *source = (const __m128i *)Memory::GetPointerUnchecked(clutAddr);
-		__m128i *dest = (__m128i *)clutBufRaw_;
-		for (int i = 0; i < numBlocks; i++, source += 2, dest += 2) {
-			__m128i data1 = _mm_loadu_si128(source);
-			__m128i data2 = _mm_loadu_si128(source + 1);
-			_mm_store_si128(dest, data1);
-			_mm_store_si128(dest + 1, data2);
+		int numBlocks = bytes / 16;
+		if (bytes == clutTotalBytes_) {
+			const __m128i *source = (const __m128i *)Memory::GetPointerUnchecked(clutAddr);
+			__m128i *dest = (__m128i *)clutBufRaw_;
+			for (int i = 0; i < numBlocks; i++, source += 2, dest += 2) {
+				__m128i data1 = _mm_loadu_si128(source);
+				__m128i data2 = _mm_loadu_si128(source + 1);
+				_mm_store_si128(dest, data1);
+				_mm_store_si128(dest + 1, data2);
+			}
+		} else {
+			Memory::MemcpyUnchecked(clutBufRaw_, clutAddr, bytes);
+			if (bytes < clutTotalBytes_) {
+				memset((u8 *)clutBufRaw_ + bytes, 0x00, clutTotalBytes_ - bytes);
+			}
 		}
 #else
-		clutTotalBytes_ = gstate.getClutLoadBytes();
-		Memory::MemcpyUnchecked(clutBufRaw_, clutAddr, clutTotalBytes_);
+		Memory::MemcpyUnchecked(clutBufRaw_, clutAddr, bytes);
+		if (bytes < clutTotalBytes_) {
+			memset((u8 *)clutBufRaw_ + bytes, 0x00, clutTotalBytes_ - bytes);
+		}
 #endif
 	} else {
-		clutTotalBytes_ = gstate.getClutLoadBytes();
-		memset(clutBufRaw_, 0xFF, clutTotalBytes_);
+		memset(clutBufRaw_, 0x00, clutTotalBytes_);
 	}
 	// Reload the clut next time.
 	clutLastFormat_ = 0xFFFFFFFF;
@@ -982,13 +884,18 @@ void TextureCache::UpdateCurrentClut() {
 	const u32 clutBaseBytes = clutBase * (clutFormat == GE_CMODE_32BIT_ABGR8888 ? sizeof(u32) : sizeof(u16));
 	// Technically, these extra bytes weren't loaded, but hopefully it was loaded earlier.
 	// If not, we're going to hash random data, which hopefully doesn't cause a performance issue.
-	const u32 clutExtendedBytes = clutTotalBytes_ + clutBaseBytes;
+	//
+	// TODO: Actually, this seems like a hack.  The game can upload part of a CLUT and reference other data.
+	// clutTotalBytes_ is the last amount uploaded.  We should hash clutMaxBytes_, but this will often hash
+	// unrelated old entries for small palettes.
+	// Adding clutBaseBytes may just be mitigating this for some usage patterns.
+	const u32 clutExtendedBytes = std::min(clutTotalBytes_ + clutBaseBytes, clutMaxBytes_);
 
 	clutHash_ = DoReliableHash32((const char *)clutBufRaw_, clutExtendedBytes, 0xC0108888);
 
 	// Avoid a copy when we don't need to convert colors.
 	if (UseBGRA8888() || clutFormat != GE_CMODE_32BIT_ABGR8888) {
-		const int numColors = (clutMaxBytes_ + clutBaseBytes) / (clutFormat == GE_CMODE_32BIT_ABGR8888 ? sizeof(u32) : sizeof(u16));
+		const int numColors = clutMaxBytes_ / (clutFormat == GE_CMODE_32BIT_ABGR8888 ? sizeof(u32) : sizeof(u16));
 		ConvertColors(clutBufConverted_, clutBufRaw_, getClutDestFormat(clutFormat), numColors);
 		clutBuf_ = clutBufConverted_;
 	} else {
@@ -1137,11 +1044,10 @@ void TextureCache::SetTextureFramebuffer(TexCacheEntry *entry, VirtualFramebuffe
 			framebufferManager_->RebindFramebuffer();
 
 			const GEPaletteFormat clutFormat = gstate.getClutPaletteFormat();
-			const u32 clutBase = gstate.getClutIndexStartPos();
 			const u32 bytesPerColor = clutFormat == GE_CMODE_32BIT_ABGR8888 ? sizeof(u32) : sizeof(u16);
-			const u32 clutExtendedColors = (clutTotalBytes_ / bytesPerColor) + clutBase;
+			const u32 clutTotalColors = clutMaxBytes_ / bytesPerColor;
 
-			TexCacheEntry::Status alphaStatus = CheckAlpha(clutBuf_, getClutDestFormat(gstate.getClutPaletteFormat()), clutExtendedColors, clutExtendedColors, 1);
+			TexCacheEntry::Status alphaStatus = CheckAlpha(clutBuf_, getClutDestFormat(gstate.getClutPaletteFormat()), clutTotalColors, clutTotalColors, 1);
 			gstate_c.textureFullAlpha = alphaStatus == TexCacheEntry::STATUS_ALPHA_FULL;
 			gstate_c.textureSimpleAlpha = alphaStatus == TexCacheEntry::STATUS_ALPHA_SIMPLE;
 		} else {
@@ -1185,7 +1091,8 @@ bool TextureCache::SetOffsetTexture(u32 offset) {
 		return false;
 	}
 
-	u64 cachekey = (u64)(texaddr & 0x3FFFFFFF) << 32;
+	const u16 dim = gstate.getTextureDimension(0);
+	u64 cachekey = ((u64)(texaddr & 0x3FFFFFFF) << 32) | dim;
 	TexCache::iterator iter = cache.find(cachekey);
 	if (iter == cache.end()) {
 		return false;
@@ -1231,6 +1138,7 @@ void TextureCache::SetTexture(bool force) {
 		return;
 	}
 
+	const u16 dim = gstate.getTextureDimension(0);
 	int w = gstate.getTextureWidth(0);
 	int h = gstate.getTextureHeight(0);
 
@@ -1243,7 +1151,7 @@ void TextureCache::SetTexture(bool force) {
 	bool hasClut = gstate.isTextureFormatIndexed();
 
 	// Ignore uncached/kernel when caching.
-	u64 cachekey = (u64)(texaddr & 0x3FFFFFFF) << 32;
+	u64 cachekey = ((u64)(texaddr & 0x3FFFFFFF) << 32) | dim;
 	u32 cluthash;
 	if (hasClut) {
 		if (clutLastFormat_ != gstate.clutformat) {
@@ -1251,7 +1159,7 @@ void TextureCache::SetTexture(bool force) {
 			UpdateCurrentClut();
 		}
 		cluthash = GetCurrentClutHash() ^ gstate.clutformat;
-		cachekey |= cluthash;
+		cachekey ^= cluthash;
 	} else {
 		cluthash = 0;
 	}
@@ -1272,8 +1180,8 @@ void TextureCache::SetTexture(bool force) {
 	if (iter != cache.end()) {
 		entry = &iter->second;
 		// Validate the texture still matches the cache entry.
-		u16 dim = gstate.getTextureDimension(0);
 		bool match = entry->Matches(dim, format, maxLevel);
+		const char *reason = "different params";
 
 		// Check for FBO - slow!
 		if (entry->framebuffer) {
@@ -1285,6 +1193,7 @@ void TextureCache::SetTexture(bool force) {
 			} else {
 				// Make sure we re-evaluate framebuffers.
 				DetachFramebuffer(entry, texaddr, entry->framebuffer);
+				reason = "detached framebuf";
 				match = false;
 			}
 		}
@@ -1349,6 +1258,7 @@ void TextureCache::SetTexture(bool force) {
 
 			if (hashFail) {
 				match = false;
+				reason = "hash fail";
 				entry->status |= TexCacheEntry::STATUS_UNRELIABLE;
 				if (entry->numFrames < TEXCACHE_FRAME_CHANGE_FREQUENT) {
 					entry->status |= TexCacheEntry::STATUS_CHANGE_FREQUENT;
@@ -1386,6 +1296,7 @@ void TextureCache::SetTexture(bool force) {
 			if ((entry->status & TexCacheEntry::STATUS_CHANGE_FREQUENT) == 0) {
 				// INFO_LOG(G3D, "Reloading texture to do the scaling we skipped..");
 				match = false;
+				reason = "scaling";
 			}
 		}
 
@@ -1406,7 +1317,7 @@ void TextureCache::SetTexture(bool force) {
 			cacheSizeEstimate_ -= EstimateTexMemoryUsage(entry);
 			entry->numInvalidated++;
 			gpuStats.numTextureInvalidations++;
-			DEBUG_LOG(G3D, "Texture different or overwritten, reloading at %08x", texaddr);
+			DEBUG_LOG(G3D, "Texture different or overwritten, reloading at %08x: %s", texaddr, reason);
 			if (doDelete) {
 				if (entry->maxLevel == maxLevel && entry->dim == gstate.getTextureDimension(0) && entry->format == format && g_Config.iTexScalingLevel == 1) {
 					// Actually, if size and number of levels match, let's try to avoid deleting and recreating.
@@ -1677,9 +1588,15 @@ void *TextureCache::DecodeTextureLevel(GETextureFormat format, GEPaletteFormat c
 	void *finalBuf = NULL;
 
 	u32 texaddr = gstate.getTextureAddress(level);
-	if (texaddr & 0x00600000 && Memory::IsVRAMAddress(texaddr)) {
+	bool swizzled = gstate.isTextureSwizzled();
+	if ((texaddr & 0x00600000) != 0 && Memory::IsVRAMAddress(texaddr)) {
 		// This means it's in a mirror, possibly a swizzled mirror.  Let's report.
-		WARN_LOG_REPORT_ONCE(texmirror, G3D, "Decoding texture from VRAM mirror at %08x swizzle=%d", texaddr, gstate.isTextureSwizzled() ? 1 : 0);
+		WARN_LOG_REPORT_ONCE(texmirror, G3D, "Decoding texture from VRAM mirror at %08x swizzle=%d", texaddr, swizzled ? 1 : 0);
+		if ((texaddr & 0x00200000) == 0x00200000) {
+			// Technically 2 and 6 are slightly different, but this is better than nothing probably.
+			swizzled = !swizzled;
+		}
+		// Note that (texaddr & 0x00600000) == 0x00600000 is very likely to be depth texturing.
 	}
 
 	int bufw = GetTextureBufw(level, texaddr, format);
@@ -1704,7 +1621,7 @@ void *TextureCache::DecodeTextureLevel(GETextureFormat format, GEPaletteFormat c
 			tmpTexBufRearrange.resize(std::max(bufw, w) * h);
 			const u16 *clut = GetCurrentClut<u16>() + clutSharingOffset;
 			texByteAlign = 2;
-			if (!gstate.isTextureSwizzled()) {
+			if (!swizzled) {
 				if (clutAlphaLinear_ && mipmapShareClut) {
 					DeIndexTexture4Optimal(tmpTexBuf16.data(), texptr, bufw * h, clutAlphaLinearColor_);
 				} else {
@@ -1728,7 +1645,7 @@ void *TextureCache::DecodeTextureLevel(GETextureFormat format, GEPaletteFormat c
 			tmpTexBuf32.resize(std::max(bufw, w) * h);
 			tmpTexBufRearrange.resize(std::max(bufw, w) * h);
 			const u32 *clut = GetCurrentClut<u32>() + clutSharingOffset;
-			if (!gstate.isTextureSwizzled()) {
+			if (!swizzled) {
 				DeIndexTexture4(tmpTexBuf32.data(), texptr, bufw * h, clut);
 				finalBuf = tmpTexBuf32.data();
 			} else {
@@ -1768,7 +1685,7 @@ void *TextureCache::DecodeTextureLevel(GETextureFormat format, GEPaletteFormat c
 	case GE_TFMT_5650:
 		texByteAlign = 2;
 
-		if (!gstate.isTextureSwizzled()) {
+		if (!swizzled) {
 			int len = std::max(bufw, w) * h;
 			tmpTexBuf16.resize(len);
 			tmpTexBufRearrange.resize(len);
@@ -1782,10 +1699,11 @@ void *TextureCache::DecodeTextureLevel(GETextureFormat format, GEPaletteFormat c
 		break;
 
 	case GE_TFMT_8888:
-		if (!gstate.isTextureSwizzled()) {
+		if (!swizzled) {
 			// Special case: if we don't need to deal with packing, we don't need to copy.
 			if ((g_Config.iTexScalingLevel == 1 && gl_extensions.EXT_unpack_subimage) || w == bufw) {
 				if (UseBGRA8888()) {
+					tmpTexBuf32.resize(std::max(bufw, w) * h);
 					finalBuf = tmpTexBuf32.data();
 					ConvertColors(finalBuf, texptr, dstFmt, bufw * h);
 				} else {
@@ -1910,71 +1828,36 @@ void *TextureCache::DecodeTextureLevel(GETextureFormat format, GEPaletteFormat c
 }
 
 TextureCache::TexCacheEntry::Status TextureCache::CheckAlpha(const u32 *pixelData, GLenum dstFmt, int stride, int w, int h) {
-	// TODO: Could probably be optimized more.
-	u32 hitZeroAlpha = 0;
-	u32 hitSomeAlpha = 0;
-
+	CheckAlphaResult res;
 	switch (dstFmt) {
 	case GL_UNSIGNED_SHORT_4_4_4_4:
-		{
-			const u32 *p = pixelData;
-			for (int y = 0; y < h && hitSomeAlpha == 0; ++y) {
-				for (int i = 0; i < (w + 1) / 2; ++i) {
-					u32 a = p[i] & 0x000F000F;
-					hitZeroAlpha |= a ^ 0x000F000F;
-					if (a != 0x000F000F && a != 0x0000000F && a != 0x000F0000 && a != 0) {
-						hitSomeAlpha = 1;
-						break;
-					}
-				}
-				p += stride/2;
-			}
-		}
+		res = CheckAlphaABGR4444Basic(pixelData, stride, w, h);
 		break;
 	case GL_UNSIGNED_SHORT_5_5_5_1:
-		{
-			const u32 *p = pixelData;
-			for (int y = 0; y < h; ++y) {
-				for (int i = 0; i < (w + 1) / 2; ++i) {
-					u32 a = p[i] & 0x00010001;
-					hitZeroAlpha |= a ^ 0x00010001;
-				}
-				p += stride/2;
-			}
-		}
+		res = CheckAlphaABGR1555Basic(pixelData, stride, w, h);
 		break;
 	case GL_UNSIGNED_SHORT_5_6_5:
-		{
-			// Never has any alpha.
-		}
+		// Never has any alpha.
+		res = CHECKALPHA_FULL;
 		break;
 	default:
-		{
-			const u32 *p = pixelData;
-			for (int y = 0; y < h && hitSomeAlpha == 0; ++y) {
-				for (int i = 0; i < w; ++i) {
-					u32 a = p[i] & 0xFF000000;
-					hitZeroAlpha |= a ^ 0xFF000000;
-					if (a != 0xFF000000 && a != 0) {
-						hitSomeAlpha = 1;
-						break;
-					}
-				}
-				p += stride;
-			}
-		}
+		res = CheckAlphaRGBA8888Basic(pixelData, stride, w, h);
 		break;
 	}
 
-	if (hitSomeAlpha != 0)
-		return TexCacheEntry::STATUS_ALPHA_UNKNOWN;
-	else if (hitZeroAlpha != 0)
-		return TexCacheEntry::STATUS_ALPHA_SIMPLE;
-	else
-		return TexCacheEntry::STATUS_ALPHA_FULL;
+	return (TexCacheEntry::Status)res;
 }
 
 void TextureCache::LoadTextureLevel(TexCacheEntry &entry, int level, bool replaceImages, int scaleFactor, GLenum dstFmt) {
+	int w = gstate.getTextureWidth(level);
+	int h = gstate.getTextureHeight(level);
+	bool useUnpack = false;
+	bool useBGRA;
+	u32 *pixelData;
+	{
+
+	PROFILE_THIS_SCOPE("decodetex");
+
 	// TODO: only do this once
 	u32 texByteAlign = 1;
 
@@ -1985,13 +1868,9 @@ void TextureCache::LoadTextureLevel(TexCacheEntry &entry, int level, bool replac
 		return;
 	}
 
-	int w = gstate.getTextureWidth(level);
-	int h = gstate.getTextureHeight(level);
-
 	gpuStats.numTexturesDecoded++;
 
 	// Can restore these and remove the fixup at the end of DecodeTextureLevel on desktop GL and GLES 3.
-	bool useUnpack = false;
 	if ((g_Config.iTexScalingLevel == 1 && gl_extensions.EXT_unpack_subimage) && w != bufw) {
 		glPixelStorei(GL_UNPACK_ROW_LENGTH, bufw);
 		useUnpack = true;
@@ -1999,9 +1878,9 @@ void TextureCache::LoadTextureLevel(TexCacheEntry &entry, int level, bool replac
 
 	glPixelStorei(GL_UNPACK_ALIGNMENT, texByteAlign);
 
-	bool useBGRA = UseBGRA8888() && dstFmt == GL_UNSIGNED_BYTE;
+	useBGRA = UseBGRA8888() && dstFmt == GL_UNSIGNED_BYTE;
 
-	u32 *pixelData = (u32 *)finalBuf;
+	pixelData = (u32 *)finalBuf;
 	if (scaleFactor > 1 && (entry.status & TexCacheEntry::STATUS_CHANGE_FREQUENT) == 0)
 		scaler.Scale(pixelData, dstFmt, w, h, scaleFactor);
 
@@ -2010,6 +1889,7 @@ void TextureCache::LoadTextureLevel(TexCacheEntry &entry, int level, bool replac
 		entry.SetAlphaStatus(alphaStatus, level);
 	} else {
 		entry.SetAlphaStatus(TexCacheEntry::STATUS_ALPHA_UNKNOWN);
+	}
 	}
 
 	GLuint components = dstFmt == GL_UNSIGNED_SHORT_5_6_5 ? GL_RGB : GL_RGBA;
@@ -2020,8 +1900,10 @@ void TextureCache::LoadTextureLevel(TexCacheEntry &entry, int level, bool replac
 	}
 
 	if (replaceImages) {
+		PROFILE_THIS_SCOPE("repltex");
 		glTexSubImage2D(GL_TEXTURE_2D, level, 0, 0, w, h, components2, dstFmt, pixelData);
 	} else {
+		PROFILE_THIS_SCOPE("loadtex");
 		glTexImage2D(GL_TEXTURE_2D, level, components, w, h, 0, components2, dstFmt, pixelData);
 		if (!lowMemoryMode_) {
 			GLenum err = glGetError();

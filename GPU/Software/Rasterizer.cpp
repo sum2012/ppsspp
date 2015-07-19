@@ -16,6 +16,7 @@
 // https://github.com/hrydgard/ppsspp and http://www.ppsspp.org/.
 
 #include "base/basictypes.h"
+#include "profiler/profiler.h"
 
 #include "Common/ThreadPools.h"
 #include "Common/ColorConv.h"
@@ -100,6 +101,15 @@ static inline u32 LookupColor(unsigned int index, unsigned int level)
 		ERROR_LOG_REPORT(G3D, "Software: Unsupported palette format: %x", gstate.getClutPaletteFormat());
 		return 0;
 	}
+}
+
+static inline u8 ClampFogDepth(float fogdepth) {
+	if (fogdepth <= 0.0f)
+		return 0;
+	else if (fogdepth >= 1.0f)
+		return 255;
+	else
+		return (u8)(u32)(fogdepth * 255.0f);
 }
 
 static inline void GetTexelCoordinates(int level, float s, float t, int& out_u, int& out_v)
@@ -189,6 +199,19 @@ static inline void GetTexelCoordinatesThrough(int level, int s, int t, int& u, i
 	v = ((unsigned int)(t) & (height - 1));
 }
 
+static inline void GetTexelCoordinatesThroughQuad(int level, int s, int t, int *u, int *v)
+{
+	// Not actually sure which clamp/wrap modes should be applied. Let's just wrap for now.
+	int width = 1 << (gstate.texsize[level] & 0xf);
+	int height = 1 << ((gstate.texsize[level] >> 8) & 0xf);
+
+	// Wrap!
+	for (int i = 0; i < 4; i++) {
+		u[i] = (s + (i & 1)) & (width - 1);
+		v[i] = (t + ((i & 2) >> 1)) & (height - 1);
+	}
+}
+
 static inline void GetTextureCoordinates(const VertexData& v0, const VertexData& v1, const VertexData& v2, int w0, int w1, int w2, float& s, float& t)
 {
 	switch (gstate.getUVGenMode()) {
@@ -201,9 +224,9 @@ static inline void GetTextureCoordinates(const VertexData& v0, const VertexData&
 			float q0 = 1.f / v0.clippos.w;
 			float q1 = 1.f / v1.clippos.w;
 			float q2 = 1.f / v2.clippos.w;
-			float q = q0 * w0 + q1 * w1 + q2 * w2;
-			s = (v0.texturecoords.s() * q0 * w0 + v1.texturecoords.s() * q1 * w1 + v2.texturecoords.s() * q2 * w2) / q;
-			t = (v0.texturecoords.t() * q0 * w0 + v1.texturecoords.t() * q1 * w1 + v2.texturecoords.t() * q2 * w2) / q;
+			float q_recip = 1.0f / (q0 * w0 + q1 * w1 + q2 * w2);
+			s = (v0.texturecoords.s() * q0 * w0 + v1.texturecoords.s() * q1 * w1 + v2.texturecoords.s() * q2 * w2) * q_recip;
+			t = (v0.texturecoords.t() * q0 * w0 + v1.texturecoords.t() * q1 * w1 + v2.texturecoords.t() * q2 * w2) * q_recip;
 		}
 		break;
 	case GE_TEXMAP_TEXTURE_MATRIX:
@@ -226,8 +249,9 @@ static inline void GetTextureCoordinates(const VertexData& v0, const VertexData&
 
 			Mat3x3<float> tgen(gstate.tgenMatrix);
 			Vec3<float> stq = tgen * source + Vec3<float>(gstate.tgenMatrix[9], gstate.tgenMatrix[10], gstate.tgenMatrix[11]);
-			s = stq.x/stq.z;
-			t = stq.y/stq.z;
+			float z_recip = 1.0f / stq.z;
+			s = stq.x * z_recip;
+			t = stq.y * z_recip;
 		}
 		break;
 	default:
@@ -935,7 +959,7 @@ static inline Vec3<int> AlphaBlendingResult(const Vec4<int> &source, const Vec4<
 }
 
 template <bool clearMode>
-inline void DrawSinglePixel(const DrawingCoords &p, u16 z, const Vec4<int> &color_in) {
+inline void DrawSinglePixel(const DrawingCoords &p, u16 z, u8 fog, const Vec4<int> &color_in) {
 	Vec4<int> prim_color = color_in;
 	// Depth range test
 	// TODO: Clear mode?
@@ -954,7 +978,7 @@ inline void DrawSinglePixel(const DrawingCoords &p, u16 z, const Vec4<int> &colo
 
 	// In clear mode, it uses the alpha color as stencil.
 	u8 stencil = clearMode ? prim_color.a() : GetPixelStencil(p.x, p.y);
-	// TODO: Is it safe to ignore gstate.isDepthTestEnabled() when clear mode is enabled?
+	// TODO: Is it safe to ignore gstate.isDepthTestEnabled() when clear mode is enabled? Probably yes
 	if (!clearMode && (gstate.isStencilTestEnabled() || gstate.isDepthTestEnabled())) {
 		if (gstate.isStencilTestEnabled() && !StencilTestPassed(stencil)) {
 			stencil = ApplyStencilOp(gstate.getStencilOpSFail(), p.x, p.y);
@@ -986,6 +1010,14 @@ inline void DrawSinglePixel(const DrawingCoords &p, u16 z, const Vec4<int> &colo
 		prim_color.r() <<= 1;
 		prim_color.g() <<= 1;
 		prim_color.b() <<= 1;
+	}
+
+	if (gstate.isFogEnabled() && !gstate.isModeThrough() && !clearMode) {
+		Vec3<int> fogColor = Vec3<int>::FromRGB(gstate.fogcolor);
+		fogColor = (prim_color.rgb() * (int)fog + fogColor * (255 - (int)fog)) / 255;
+		prim_color.r() = fogColor.r();
+		prim_color.g() = fogColor.g();
+		prim_color.b() = fogColor.b();
 	}
 
 	const u32 old_color = GetPixelColor(p.x, p.y);
@@ -1044,11 +1076,10 @@ inline void ApplyTexturing(Vec4<int> &prim_color, float s, float t, int maxTexLe
 		if (texlevel > maxTexLevel)
 			texlevel = maxTexLevel;
 
-		GetTexelCoordinatesThrough(texlevel, u_texel, v_texel, u[0], v[0]);
 		if (bilinear) {
-			GetTexelCoordinatesThrough(texlevel, u_texel + 1, v_texel, u[1], v[1]);
-			GetTexelCoordinatesThrough(texlevel, u_texel, v_texel + 1, u[2], v[2]);
-			GetTexelCoordinatesThrough(texlevel, u_texel + 1, v_texel + 1, u[3], v[3]);
+			GetTexelCoordinatesThroughQuad(texlevel, u_texel, v_texel, u, v);
+		} else {
+			GetTexelCoordinatesThrough(texlevel, u_texel, v_texel, u[0], v[0]);
 		}
 	} else {
 		// we need to compute UV for a quad of pixels together in order to get the mipmap deltas :(
@@ -1199,6 +1230,7 @@ void DrawTriangleSlice(
 	int w1_base = orient2d(v2.screenpos, v0.screenpos, pprime);
 	int w2_base = orient2d(v0.screenpos, v1.screenpos, pprime);
 
+	// Step forward to y1 (slice..)
 	w0_base += orient2dIncY(d12.x) * 16 * y1;
 	w1_base += orient2dIncY(-d02.x) * 16 * y1;
 	w2_base += orient2dIncY(d01.x) * 16 * y1;
@@ -1225,20 +1257,18 @@ void DrawTriangleSlice(
 			p.x = (p.x + 1) & 0x3FF) {
 
 			// If p is on or inside all edges, render pixel
-			// TODO: Should we render if the pixel is both on the left and the right side? (i.e. degenerated triangle)
 			if (w0 + bias0 >= 0 && w1 + bias1 >= 0 && w2 + bias2 >= 0) {
-				// TODO: Check if this check is still necessary
-				if (w0 == 0 && w1 == 0 && w2 == 0)
+				int wsum = w0 + w1 + w2;
+				if (wsum == 0.0f)
 					continue;
-
-				float wsum = 1.0f / (w0 + w1 + w2);
+				float wsum_recip = 1.0f / (float)wsum;
 
 				Vec4<int> prim_color;
 				Vec3<int> sec_color;
 				if (gstate.getShadeMode() == GE_SHADE_GOURAUD && !clearMode) {
-					// TODO: Is that the correct way to interpolate?
-					prim_color = Interpolate(v0.color0, v1.color0, v2.color0, w0, w1, w2, wsum);
-					sec_color = Interpolate(v0.color1, v1.color1, v2.color1, w0, w1, w2, wsum);
+					// Does the PSP do perspective-correct color interpolation? The GC doesn't.
+					prim_color = Interpolate(v0.color0, v1.color0, v2.color0, w0, w1, w2, wsum_recip);
+					sec_color = Interpolate(v0.color1, v1.color1, v2.color1, w0, w1, w2, wsum_recip);
 				} else {
 					prim_color = v2.color0;
 					sec_color = v2.color1;
@@ -1246,10 +1276,10 @@ void DrawTriangleSlice(
 
 				if (gstate.isTextureMapEnabled() && !clearMode) {
 					if (gstate.isModeThrough()) {
-						// TODO: Is it really this simple?
-						Vec2<float> texcoords = Interpolate(v0.texturecoords, v1.texturecoords, v2.texturecoords, w0, w1, w2, wsum);
+						Vec2<float> texcoords = Interpolate(v0.texturecoords, v1.texturecoords, v2.texturecoords, w0, w1, w2, wsum_recip);
 						ApplyTexturing(prim_color, texcoords.s(), texcoords.t(), maxTexLevel, magFilt, texptr, texbufwidthbits);
 					} else {
+						// Texture coordinate interpolation must definitely be perspective-correct.
 						float s = 0, t = 0;
 						GetTextureCoordinates(v0, v1, v2, w0, w1, w2, s, t);
 						s = s * texScaleU + texOffsetU;
@@ -1268,15 +1298,18 @@ void DrawTriangleSlice(
 #endif
 				}
 
-				// TODO: Fogging
+				int fog = 255;
+				if (gstate.isFogEnabled() && !clearMode) {
+					fog = ClampFogDepth(((float)v0.fogdepth * w0 + (float)v1.fogdepth * w1 + (float)v2.fogdepth * w2) * wsum_recip);
+				}
 
 				u16 z = v2.screenpos.z;
 				// TODO: Is that the correct way to interpolate?
 				// Without the (u32), this causes an ICE in some versions of gcc.
 				if (!flatZ)
-					z = (u16)(u32)(((float)v0.screenpos.z * w0 + (float)v1.screenpos.z * w1 + (float)v2.screenpos.z * w2) * wsum);
+					z = (u16)(u32)(((float)v0.screenpos.z * w0 + (float)v1.screenpos.z * w1 + (float)v2.screenpos.z * w2) * wsum_recip);
 
-				DrawSinglePixel<clearMode>(p, z, prim_color);
+				DrawSinglePixel<clearMode>(p, z, fog, prim_color);
 			}
 		}
 	}
@@ -1285,6 +1318,8 @@ void DrawTriangleSlice(
 // Draws triangle, vertices specified in counter-clockwise direction
 void DrawTriangle(const VertexData& v0, const VertexData& v1, const VertexData& v2)
 {
+	PROFILE_THIS_SCOPE("draw_tri");
+
 	Vec2<int> d01((int)v0.screenpos.x - (int)v1.screenpos.x, (int)v0.screenpos.y - (int)v1.screenpos.y);
 	Vec2<int> d02((int)v0.screenpos.x - (int)v2.screenpos.x, (int)v0.screenpos.y - (int)v2.screenpos.y);
 	Vec2<int> d12((int)v1.screenpos.x - (int)v2.screenpos.x, (int)v1.screenpos.y - (int)v2.screenpos.y);
@@ -1293,11 +1328,10 @@ void DrawTriangle(const VertexData& v0, const VertexData& v1, const VertexData& 
 	if (d01.x * d02.y - d01.y * d02.x < 0)
 		return;
 
-	// Is the division and multiplication just &= ~0xF ?
-	int minX = std::min(std::min(v0.screenpos.x, v1.screenpos.x), v2.screenpos.x) / 16 * 16;
-	int minY = std::min(std::min(v0.screenpos.y, v1.screenpos.y), v2.screenpos.y) / 16 * 16;
-	int maxX = std::max(std::max(v0.screenpos.x, v1.screenpos.x), v2.screenpos.x) / 16 * 16;
-	int maxY = std::max(std::max(v0.screenpos.y, v1.screenpos.y), v2.screenpos.y) / 16 * 16;
+	int minX = std::min(std::min(v0.screenpos.x, v1.screenpos.x), v2.screenpos.x) & ~0xF;
+	int minY = std::min(std::min(v0.screenpos.y, v1.screenpos.y), v2.screenpos.y) & ~0xF;
+	int maxX = std::max(std::max(v0.screenpos.x, v1.screenpos.x), v2.screenpos.x) & ~0xF;
+	int maxY = std::max(std::max(v0.screenpos.y, v1.screenpos.y), v2.screenpos.y) & ~0xF;
 
 	DrawingCoords scissorTL(gstate.getScissorX1(), gstate.getScissorY1(), 0);
 	DrawingCoords scissorBR(gstate.getScissorX2(), gstate.getScissorY2(), 0);
@@ -1397,14 +1431,15 @@ void DrawPoint(const VertexData &v0)
 
 	ScreenCoords pprime = pos;
 
-	// TODO: Fogging
 	DrawingCoords p = TransformUnit::ScreenToDrawing(pprime);
 	u16 z = pos.z;
 
+	u8 fog = ClampFogDepth(v0.fogdepth);
+
 	if (clearMode) {
-		DrawSinglePixel<true>(p, z, prim_color);
+		DrawSinglePixel<true>(p, z, v0.fogdepth, prim_color);
 	} else {
-		DrawSinglePixel<false>(p, z, prim_color);
+		DrawSinglePixel<false>(p, z, v0.fogdepth, prim_color);
 	}
 }
 
@@ -1473,11 +1508,15 @@ void DrawLine(const VertexData &v0, const VertexData &v1)
 		if (x < scissorTL.x || y < scissorTL.y || x >= scissorBR.x || y >= scissorBR.y)
 			continue;
 
+		// Interpolate between the two points.
 		Vec4<int> c0 = (v0.color0 * (steps - i) + v1.color0 * i) / steps1;
 		Vec3<int> sec_color = (v0.color1 * (steps - i) + v1.color1 * i) / steps1;
 		// TODO: UVGenMode?
 		Vec2<float> tc = (v0.texturecoords * (float)(steps - i) + v1.texturecoords * (float)i) / steps1;
 		Vec4<int> prim_color = c0;
+
+		// TODO: Interpolate fog as well
+
 		float s = tc.s();
 		float t = tc.t();
 
@@ -1497,13 +1536,11 @@ void DrawLine(const VertexData &v0, const VertexData &v1)
 
 		ScreenCoords pprime = ScreenCoords(x, y, z);
 
-		// TODO: Fogging
 		DrawingCoords p = TransformUnit::ScreenToDrawing(pprime);
-
 		if (clearMode) {
-			DrawSinglePixel<true>(p, z, prim_color);
+			DrawSinglePixel<true>(p, z, v0.fogdepth, prim_color);
 		} else {
-			DrawSinglePixel<false>(p, z, prim_color);
+			DrawSinglePixel<false>(p, z, v0.fogdepth, prim_color);
 		}
 
 		x = x + xinc;

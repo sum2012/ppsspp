@@ -37,7 +37,7 @@ using namespace MIPSAnalyst;
 // All functions should have CONDITIONAL_DISABLE, so we can narrow things down to a file quickly.
 // Currently known non working ones should have DISABLE.
 
-//#define CONDITIONAL_DISABLE { Comp_Generic(op); return; }
+// #define CONDITIONAL_DISABLE { Comp_Generic(op); return; }
 #define CONDITIONAL_DISABLE ;
 #define DISABLE { Comp_Generic(op); return; }
 
@@ -485,7 +485,7 @@ namespace MIPSComp
 					cc = SwapCCFlag(cc);
 				} else if (!gpr.R(lhs).CanDoOpWith(gpr.R(rhs))) {
 					// Let's try to pick which makes more sense to load.
-					if (MIPSAnalyst::IsRegisterUsed(rhs, js.compilerPC + 4, 3)) {
+					if (MIPSAnalyst::IsRegisterUsed(rhs, GetCompilerPC() + 4, 3)) {
 						std::swap(lhs, rhs);
 						cc = SwapCCFlag(cc);
 					}
@@ -525,7 +525,7 @@ namespace MIPSComp
 					cc = SwapCCFlag(cc);
 				} else if (!gpr.R(lhs).CanDoOpWith(gpr.R(rhs))) {
 					// Let's try to pick which makes more sense to load.
-					if (MIPSAnalyst::IsRegisterUsed(rhs, js.compilerPC + 4, 3)) {
+					if (MIPSAnalyst::IsRegisterUsed(rhs, GetCompilerPC() + 4, 3)) {
 						std::swap(lhs, rhs);
 						cc = SwapCCFlag(cc);
 					}

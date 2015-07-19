@@ -17,5 +17,27 @@
 
 #pragma once
 
-#include "InputDevice.h"
+#include "Common/CommonTypes.h"
+#include "Core/Loaders.h"
 
+class LocalFileLoader : public FileLoader {
+public:
+	LocalFileLoader(const std::string &filename);
+	virtual ~LocalFileLoader();
+
+	virtual bool Exists() override;
+	virtual bool IsDirectory() override;
+	virtual s64 FileSize() override;
+	virtual std::string Path() const override;
+
+	virtual void Seek(s64 absolutePos) override;
+	virtual size_t Read(size_t bytes, size_t count, void *data) override;
+	virtual size_t ReadAt(s64 absolutePos, size_t bytes, size_t count, void *data) override;
+
+private:
+	// First only used by Android, but we can keep it here for everyone.
+	int fd_;
+	FILE *f_;
+	u64 filesize_;
+	std::string filename_;
+};

@@ -21,7 +21,8 @@
 
 
 #include "StateMapping.h"
-#include "native/gfx_es2/gl_state.h"
+#include "gfx_es2/gl_state.h"
+#include "profiler/profiler.h"
 
 #include "GPU/Math3D.h"
 #include "GPU/GPUState.h"
@@ -568,6 +569,7 @@ void TransformDrawEngine::ApplyBlendState() {
 }
 
 void TransformDrawEngine::ApplyDrawState(int prim) {
+
 	// TODO: All this setup is soon so expensive that we'll need dirty flags, or simply do it in the command writes where we detect dirty by xoring. Silly to do all this work on every drawcall.
 
 	if (gstate_c.textureChanged != TEXCHANGE_UNCHANGED && !gstate.isModeClear() && gstate.isTextureMapEnabled()) {
@@ -579,6 +581,9 @@ void TransformDrawEngine::ApplyDrawState(int prim) {
 			shaderManager_->DirtyUniform(DIRTY_TEXCLAMP);
 		}
 	}
+
+	// Start profiling here to skip SetTexture which is already accounted for
+	PROFILE_THIS_SCOPE("applydrawstate");
 
 	// Set blend - unless we need to do it in the shader.
 	ApplyBlendState();
@@ -725,10 +730,9 @@ void TransformDrawEngine::ApplyDrawState(int prim) {
 		renderWidthFactor = (float)renderWidth / framebufferManager_->GetTargetBufferWidth();
 		renderHeightFactor = (float)renderHeight / framebufferManager_->GetTargetBufferHeight();
 	} else {
-		// TODO: Aspect-ratio aware and centered
 		float pixelW = PSP_CoreParameter().pixelWidth;
 		float pixelH = PSP_CoreParameter().pixelHeight;
-		CenterRect(&renderX, &renderY, &renderWidth, &renderHeight, 480, 272, pixelW, pixelH);
+		CenterRect(&renderX, &renderY, &renderWidth, &renderHeight, 480, 272, pixelW, pixelH, ROTATION_LOCKED_HORIZONTAL);
 		renderWidthFactor = renderWidth / 480.0f;
 		renderHeightFactor = renderHeight / 272.0f;
 	}
@@ -862,11 +866,24 @@ void TransformDrawEngine::ApplyDrawState(int prim) {
 
 		glstate.viewport.set(left, bottom, right - left, top - bottom);
 
-		float zScale = getFloat24(gstate.viewportz1) / 65535.0f;
-		float zOff = getFloat24(gstate.viewportz2) / 65535.0f;
+		float zScale = getFloat24(gstate.viewportz1) * (1.0f / 65535.0f);
+		float zOff = getFloat24(gstate.viewportz2) * (1.0f / 65535.0f);
 		float depthRangeMin = zOff - zScale;
 		float depthRangeMax = zOff + zScale;
 		glstate.depthRange.set(depthRangeMin, depthRangeMax);
+
+#ifndef MOBILE_DEVICE
+		float minz = gstate.getDepthRangeMin() * (1.0f / 65535.0f);
+		float maxz = gstate.getDepthRangeMax() * (1.0f / 65535.0f);
+		if ((minz > depthRangeMin && minz > depthRangeMax) || (maxz < depthRangeMin && maxz < depthRangeMax)) {
+			WARN_LOG_REPORT_ONCE(minmaxz, G3D, "Unsupported depth range test - depth range: %f-%f, test: %f-%f", depthRangeMin, depthRangeMax, minz, maxz);
+		} else if ((gstate.clipEnable & 1) == 0) {
+			// TODO: Need to test whether clipEnable should even affect depth or not.
+			if ((minz < depthRangeMin && minz < depthRangeMax) || (maxz > depthRangeMin && maxz > depthRangeMax)) {
+				WARN_LOG_REPORT_ONCE(znoclip, G3D, "Unsupported depth range test without clipping - depth range: %f-%f, test: %f-%f", depthRangeMin, depthRangeMax, minz, maxz);
+			}
+		}
+#endif
 	}
 }
 

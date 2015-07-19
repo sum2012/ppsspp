@@ -34,36 +34,6 @@
 namespace MIPSComp
 {
 
-struct ArmJitOptions
-{
-	ArmJitOptions()  {
-		enableBlocklink = true;
-		downcountInRegister = true;
-		useBackJump = false;
-		useForwardJump = false;
-		cachePointers = true;
-		immBranches = false;
-		continueBranches = false;
-		continueJumps = false;
-		continueMaxInstructions = 300;
-
-		useNEONVFPU = false;  // true
-		if (!cpu_info.bNEON)
-			useNEONVFPU = false;
-	}
-
-	bool useNEONVFPU;
-	bool enableBlocklink;
-	bool downcountInRegister;
-	bool useBackJump;
-	bool useForwardJump;
-	bool cachePointers;
-	bool immBranches;
-	bool continueBranches;
-	bool continueJumps;
-	int continueMaxInstructions;
-};
-
 class ArmJit : public ArmGen::ARMXCodeBlock
 {
 public:
@@ -84,10 +54,6 @@ public:
 	const u8 *DoJit(u32 em_address, JitBlock *b);
 
 	bool DescribeCodePtr(const u8 *ptr, std::string &name);
-
-	void CompileDelaySlot(int flags);
-	void EatInstruction(MIPSOpcode op);
-	void AddContinuedBlock(u32 dest);
 
 	void Comp_RunBlock(MIPSOpcode op);
 	void Comp_ReplacementFunc(MIPSOpcode op);
@@ -215,6 +181,12 @@ private:
 	void FlushAll();
 	void FlushPrefixV();
 
+	u32 GetCompilerPC();
+	void CompileDelaySlot(int flags);
+	void EatInstruction(MIPSOpcode op);
+	void AddContinuedBlock(u32 dest);
+	MIPSOpcode GetOffsetInstruction(int offset);
+
 	void WriteDownCount(int offset = 0);
 	void WriteDownCountR(ArmGen::ARMReg reg);
 	void RestoreRoundingMode(bool force = false);
@@ -303,7 +275,7 @@ private:
 	void Comp_ITypeMemLR(MIPSOpcode op, bool load);
 
 	JitBlockCache blocks;
-	ArmJitOptions jo;
+	JitOptions jo;
 	JitState js;
 
 	ArmRegCache gpr;

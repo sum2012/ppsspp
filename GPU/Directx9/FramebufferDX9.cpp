@@ -42,46 +42,13 @@
 namespace DX9 {
 	static void ConvertFromRGBA8888(u8 *dst, u8 *src, u32 dstStride, u32 srcStride, u32 width, u32 height, GEBufferFormat format);
 
-	void CenterRect(float *x, float *y, float *w, float *h,
-                float origW, float origH, float frameW, float frameH) {
-		if (g_Config.bStretchToDisplay) {
-			*x = 0;
-			*y = 0;
-			*w = frameW;
-			*h = frameH;
-			return;
-		}
-
-		float origRatio = origW/origH;
-		float frameRatio = frameW/frameH;
-
-		if (origRatio > frameRatio) {
-			// Image is wider than frame. Center vertically.
-			float scale = origW / frameW;
-			*x = 0.0f;
-			*w = frameW;
-			*h = frameW / origRatio;
-			// Stretch a little bit
-			if (g_Config.bPartialStretch)
-				*h = (frameH + *h) / 2.0f; // (408 + 720) / 2 = 564
-			*y = (frameH - *h) / 2.0f;
-		} else {
-			// Image is taller than frame. Center horizontally.
-			float scale = origH / frameH;
-			*y = 0.0f;
-			*h = frameH;
-			*w = frameH * origRatio;
-			*x = (frameW - *w) / 2.0f;
-		}
-	}
-
 	void FramebufferManagerDX9::ClearBuffer() {
 		dxstate.scissorTest.disable();
 		dxstate.depthWrite.set(TRUE);
 		dxstate.colorMask.set(true, true, true, true);
 		dxstate.stencilFunc.set(D3DCMP_ALWAYS, 0, 0);
 		dxstate.stencilMask.set(0xFF);
-		pD3Ddevice->Clear(0, NULL, D3DCLEAR_STENCIL|D3DCLEAR_TARGET |D3DCLEAR_ZBUFFER, D3DCOLOR_XRGB(0, 0, 0), 0, 0);
+		pD3Ddevice->Clear(0, NULL, D3DCLEAR_STENCIL|D3DCLEAR_TARGET |D3DCLEAR_ZBUFFER, D3DCOLOR_ARGB(0, 0, 0, 0), 0, 0);
 	}
 
 	void FramebufferManagerDX9::ClearDepthBuffer() {
@@ -89,7 +56,7 @@ namespace DX9 {
 		dxstate.depthWrite.set(TRUE);
 		dxstate.colorMask.set(false, false, false, false);
 		dxstate.stencilFunc.set(D3DCMP_NEVER, 0, 0);
-		pD3Ddevice->Clear(0, NULL, D3DCLEAR_ZBUFFER, D3DCOLOR_XRGB(0, 0, 0), 0, 0);
+		pD3Ddevice->Clear(0, NULL, D3DCLEAR_ZBUFFER, D3DCOLOR_ARGB(0, 0, 0, 0), 0, 0);
 	}
 
 	void FramebufferManagerDX9::DisableState() {
@@ -173,7 +140,7 @@ namespace DX9 {
 					{
 						const u16_le *src = (const u16_le *)srcPixels + srcStride * y;
 						u32 *dst = (u32 *)(convBuf + rect.Pitch * y);
-						ConvertBGR565ToRGBA8888(dst, src, width);
+						ConvertRGB565ToBGRA8888(dst, src, width);
 					}
 					break;
 					// faster
@@ -181,14 +148,14 @@ namespace DX9 {
 					{
 						const u16_le *src = (const u16_le *)srcPixels + srcStride * y;
 						u32 *dst = (u32 *)(convBuf + rect.Pitch * y);
-						ConvertBGRA5551ToRGBA8888(dst, src, width);
+						ConvertRGBA5551ToBGRA8888(dst, src, width);
 					}
 					break;
 				case GE_FORMAT_4444:
 					{
 						const u16_le *src = (const u16_le *)srcPixels + srcStride * y;
 						u8 *dst = (u8 *)(convBuf + rect.Pitch * y);
-						ConvertBGRA4444ToRGBA8888((u32 *)dst, src, width);
+						ConvertRGBA4444ToBGRA8888((u32 *)dst, src, width);
 					}
 					break;
 
@@ -196,7 +163,7 @@ namespace DX9 {
 					{
 						const u32_le *src = (const u32_le *)srcPixels + srcStride * y;
 						u32 *dst = (u32 *)(convBuf + rect.Pitch * y);
-						ConvertBGRA8888ToRGBA8888(dst, src, width);
+						ConvertRGBA8888ToBGRA8888(dst, src, width);
 					}
 					break;
 				}
@@ -205,7 +172,7 @@ namespace DX9 {
 			for (int y = 0; y < height; y++) {
 				const u32_le *src = (const u32_le *)srcPixels + srcStride * y;
 				u32 *dst = (u32 *)(convBuf + rect.Pitch * y);
-				ConvertBGRA8888ToRGBA8888(dst, src, width);
+				ConvertRGBA8888ToBGRA8888(dst, src, width);
 			}
 		}
 
@@ -233,11 +200,12 @@ namespace DX9 {
 		// Should try to unify this path with the regular path somehow, but this simple solution works for most of the post shaders
 		// (it always runs at output resolution so FXAA may look odd).
 		float x, y, w, h;
-		CenterRect(&x, &y, &w, &h, 480.0f, 272.0f, (float)PSP_CoreParameter().pixelWidth, (float)PSP_CoreParameter().pixelHeight);
-		DrawActiveTexture(drawPixelsTex_, x, y, w, h, (float)PSP_CoreParameter().pixelWidth, (float)PSP_CoreParameter().pixelHeight, false, 0.0f, 0.0f, 480.0f / 512.0f);
+		int uvRotation = (g_Config.iRenderingMode != FB_NON_BUFFERED_MODE) ? g_Config.iInternalScreenRotation : ROTATION_LOCKED_HORIZONTAL;
+		CenterRect(&x, &y, &w, &h, 480.0f, 272.0f, (float)PSP_CoreParameter().pixelWidth, (float)PSP_CoreParameter().pixelHeight, uvRotation);
+		DrawActiveTexture(drawPixelsTex_, x, y, w, h, (float)PSP_CoreParameter().pixelWidth, (float)PSP_CoreParameter().pixelHeight, false, 0.0f, 0.0f, 480.0f / 512.0f, uvRotation);
 	}
 
-	void FramebufferManagerDX9::DrawActiveTexture(LPDIRECT3DTEXTURE9 tex, float x, float y, float w, float h, float destW, float destH, bool flip, float u0, float v0, float u1, float v1) {
+	void FramebufferManagerDX9::DrawActiveTexture(LPDIRECT3DTEXTURE9 tex, float x, float y, float w, float h, float destW, float destH, bool flip, float u0, float v0, float u1, float v1, int uvRotation) {
 		if (flip) {
 			std::swap(v0, v1);
 		}
@@ -250,6 +218,28 @@ namespace DX9 {
 			x,y+h,0, u0,v1,
 		};
 
+		static const short indices[4] = { 0, 1, 3, 2 };
+
+		if (uvRotation != ROTATION_LOCKED_HORIZONTAL) {
+			float temp[8];
+			int rotation = 0;
+			switch (uvRotation) {
+			case ROTATION_LOCKED_HORIZONTAL180: rotation = 2; break;
+			case ROTATION_LOCKED_VERTICAL: rotation = 1; break;
+			case ROTATION_LOCKED_VERTICAL180: rotation = 3; break;
+			}
+
+			for (int i = 0; i < 4; i++) {
+				temp[i * 2] = coord[((i + rotation) & 3) * 5 + 3];
+				temp[i * 2 + 1] = coord[((i + rotation) & 3) * 5 + 4];
+			}
+
+			for (int i = 0; i < 4; i++) {
+				coord[i * 5 + 3] = temp[i * 2];
+				coord[i * 5 + 4] = temp[i * 2 + 1];
+			}
+		}
+
 		float invDestW = 1.0f / (destW * 0.5f);
 		float invDestH = 1.0f / (destH * 0.5f);
 		float halfPixelX = invDestW * 0.5f;
@@ -259,7 +249,6 @@ namespace DX9 {
 			coord[i * 5 + 1] = -(coord[i * 5 + 1] * invDestH - 1.0f - halfPixelY);
 		}
 
-		//pD3Ddevice->SetRenderState(D3DRS_FILLMODE, D3DFILL_WIREFRAME);
 		pD3Ddevice->SetRenderState(D3DRS_CULLMODE, D3DCULL_NONE);
 		pD3Ddevice->SetVertexDeclaration(pFramebufferVertexDecl);
 		pD3Ddevice->SetPixelShader(pFramebufferPixelShader);
@@ -435,8 +424,7 @@ namespace DX9 {
 		}
 		if (vfb->drawnFormat != vfb->format) {
 			// TODO: Might ultimately combine this with the resize step in DoSetRenderFrameBuffer().
-			// TODO
-			//ReformatFramebufferFrom(vfb, vfb->drawnFormat);
+			ReformatFramebufferFrom(vfb, vfb->drawnFormat);
 		}
 
 		// ugly...
@@ -453,8 +441,7 @@ namespace DX9 {
 		if (vfbFormatChanged) {
 			textureCache_->NotifyFramebuffer(vfb->fb_address, vfb, NOTIFY_FB_UPDATED);
 			if (vfb->drawnFormat != vfb->format) {
-				// TODO
-				//ReformatFramebufferFrom(vfb, vfb->drawnFormat);
+				ReformatFramebufferFrom(vfb, vfb->drawnFormat);
 			}
 		}
 
@@ -466,6 +453,62 @@ namespace DX9 {
 			shaderManager_->DirtyUniform(DIRTY_PROJMATRIX);
 			shaderManager_->DirtyUniform(DIRTY_PROJTHROUGHMATRIX);
 		}
+	}
+
+	void FramebufferManagerDX9::ReformatFramebufferFrom(VirtualFramebuffer *vfb, GEBufferFormat old) {
+		if (!useBufferedRendering_ || !vfb->fbo) {
+			return;
+		}
+
+		fbo_bind_as_render_target(vfb->fbo);
+
+		// Technically, we should at this point re-interpret the bytes of the old format to the new.
+		// That might get tricky, and could cause unnecessary slowness in some games.
+		// For now, we just clear alpha/stencil from 565, which fixes shadow issues in Kingdom Hearts.
+		// (it uses 565 to write zeros to the buffer, than 4444 to actually render the shadow.)
+		//
+		// The best way to do this may ultimately be to create a new FBO (combine with any resize?)
+		// and blit with a shader to that, then replace the FBO on vfb.  Stencil would still be complex
+		// to exactly reproduce in 4444 and 8888 formats.
+
+		if (old == GE_FORMAT_565) {
+			dxstate.scissorTest.disable();
+			dxstate.depthWrite.set(FALSE);
+			dxstate.colorMask.set(false, false, false, true);
+			dxstate.stencilFunc.set(D3DCMP_ALWAYS, 0, 0);
+			dxstate.stencilMask.set(0xFF);
+
+			float coord[20] = {
+				-1.0f,-1.0f,0, 0,0,
+				1.0f,-1.0f,0, 0,0,
+				1.0f,1.0f,0, 0,0,
+				-1.0f,1.0f,0, 0,0,
+			};
+
+			dxstate.cullMode.set(false, false);
+			pD3Ddevice->SetVertexDeclaration(pFramebufferVertexDecl);
+			pD3Ddevice->SetPixelShader(pFramebufferPixelShader);
+			pD3Ddevice->SetVertexShader(pFramebufferVertexShader);
+			shaderManager_->DirtyLastShader();
+			pD3Ddevice->SetTexture(0, nullptr);
+
+			D3DVIEWPORT9 vp;
+			vp.MinZ = 0;
+			vp.MaxZ = 1;
+			vp.X = 0;
+			vp.Y = 0;
+			vp.Width = vfb->renderWidth;
+			vp.Height = vfb->renderHeight;
+			pD3Ddevice->SetViewport(&vp);
+
+			// This should clear stencil and alpha without changing the other colors.
+			HRESULT hr = pD3Ddevice->DrawPrimitiveUP(D3DPT_TRIANGLEFAN, 2, coord, 5 * sizeof(float));
+			if (FAILED(hr)) {
+				ERROR_LOG_REPORT(G3D, "ReformatFramebufferFrom() failed: %08x", hr);
+			}
+		}
+
+		RebindFramebuffer();
 	}
 
 	void FramebufferManagerDX9::BlitFramebufferDepth(VirtualFramebuffer *src, VirtualFramebuffer *dst) {
@@ -545,9 +588,13 @@ namespace DX9 {
 		return fbo;
 	}
 
-	LPDIRECT3DSURFACE9 FramebufferManagerDX9::GetOffscreenSurface(LPDIRECT3DSURFACE9 similarSurface) {
-		D3DSURFACE_DESC desc;
-		similarSurface->GetDesc(&desc);
+	LPDIRECT3DSURFACE9 FramebufferManagerDX9::GetOffscreenSurface(LPDIRECT3DSURFACE9 similarSurface, VirtualFramebuffer *vfb) {
+		D3DSURFACE_DESC desc = {};
+		HRESULT hr = similarSurface->GetDesc(&desc);
+		if (FAILED(hr)) {
+			ERROR_LOG_REPORT(G3D, "Unable to get size for offscreen surface at %08x", vfb->fb_address);
+			return nullptr;
+		}
 
 		u64 key = ((u64)desc.Format << 32) | (desc.Width << 16) | desc.Height;
 		auto it = offscreenSurfaces_.find(key);
@@ -558,7 +605,7 @@ namespace DX9 {
 
 		textureCache_->ForgetLastTexture();
 		LPDIRECT3DSURFACE9 offscreen = nullptr;
-		HRESULT hr = pD3Ddevice->CreateOffscreenPlainSurface(desc.Width, desc.Height, desc.Format, D3DPOOL_SYSTEMMEM, &offscreen, NULL);
+		hr = pD3Ddevice->CreateOffscreenPlainSurface(desc.Width, desc.Height, desc.Format, D3DPOOL_SYSTEMMEM, &offscreen, NULL);
 		if (FAILED(hr) || !offscreen) {
 			ERROR_LOG_REPORT(G3D, "Unable to create offscreen surface %dx%d @%d", desc.Width, desc.Height, desc.Format);
 			return nullptr;
@@ -699,7 +746,8 @@ namespace DX9 {
 
 			// Output coordinates
 			float x, y, w, h;
-			CenterRect(&x, &y, &w, &h, 480.0f, 272.0f, (float)PSP_CoreParameter().pixelWidth, (float)PSP_CoreParameter().pixelHeight);
+			int uvRotation = (g_Config.iRenderingMode != FB_NON_BUFFERED_MODE) ? g_Config.iInternalScreenRotation : ROTATION_LOCKED_HORIZONTAL;
+			CenterRect(&x, &y, &w, &h, 480.0f, 272.0f, (float)PSP_CoreParameter().pixelWidth, (float)PSP_CoreParameter().pixelHeight, uvRotation);
 
 			const float u0 = offsetX / (float)vfb->bufferWidth;
 			const float v0 = offsetY / (float)vfb->bufferHeight;
@@ -725,7 +773,7 @@ namespace DX9 {
 					}
 					dxstate.texMipFilter.set(D3DTEXF_NONE);
 					dxstate.texMipLodBias.set(0);
-					DrawActiveTexture(colorTexture, x, y, w, h, (float)PSP_CoreParameter().pixelWidth, (float)PSP_CoreParameter().pixelHeight, false, u0, v0, u1, v1);
+					DrawActiveTexture(colorTexture, x, y, w, h, (float)PSP_CoreParameter().pixelWidth, (float)PSP_CoreParameter().pixelHeight, false, u0, v0, u1, v1, uvRotation);
 				}
 			}
 			/* 
@@ -1017,7 +1065,7 @@ namespace DX9 {
 		D3DSURFACE_DESC desc;
 		renderTarget->GetDesc(&desc);
 
-		LPDIRECT3DSURFACE9 offscreen = GetOffscreenSurface(renderTarget);
+		LPDIRECT3DSURFACE9 offscreen = GetOffscreenSurface(renderTarget, vfb);
 		if (offscreen) {
 			HRESULT hr = pD3Ddevice->GetRenderTargetData(renderTarget, offscreen);
 			if (SUCCEEDED(hr)) {
@@ -1196,7 +1244,7 @@ namespace DX9 {
 		LPDIRECT3DSURFACE9 renderTarget = vfb->fbo ? fbo_get_color_for_read(vfb->fbo) : nullptr;
 		bool success = false;
 		if (renderTarget) {
-			LPDIRECT3DSURFACE9 offscreen = GetOffscreenSurface(renderTarget);
+			LPDIRECT3DSURFACE9 offscreen = GetOffscreenSurface(renderTarget, vfb);
 			if (offscreen) {
 				success = GetRenderTargetFramebuffer(renderTarget, offscreen, vfb->renderWidth, vfb->renderHeight, buffer);
 			}

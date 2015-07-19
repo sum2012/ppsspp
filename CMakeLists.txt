@@ -21,7 +21,9 @@ if(CMAKE_SYSTEM_PROCESSOR)
 		if(${CMAKE_SYSTEM_PROCESSOR} MATCHES "^armv7")
 			set(ARMV7 ON)
 		endif()
-	elseif(${CMAKE_SYSTEM_PROCESSOR} MATCHES "^x86" OR ${CMAKE_SYSTEM_PROCESSOR} MATCHES "i.86")
+	elseif(${CMAKE_SYSTEM_PROCESSOR} MATCHES "^x86" OR
+		${CMAKE_SYSTEM_PROCESSOR} MATCHES "^amd64" OR
+		${CMAKE_SYSTEM_PROCESSOR} MATCHES "i.86")
 		set(X86 ON)
 	elseif(${CMAKE_SYSTEM_PROCESSOR} MATCHES "^mips")
 		set(MIPS ON)
@@ -96,6 +98,7 @@ option(UNITTEST "Set to ON to generate the unittest target" ${UNITTEST})
 option(SIMULATOR "Set to ON when targeting an x86 simulator of an ARM platform" ${SIMULATOR})
 # :: Options
 option(USE_FFMPEG "Build with FFMPEG support" ${USE_FFMPEG})
+option(USE_SYSTEM_FFMPEG "Dynamically link against system FFMPEG" ${USE_SYSTEM_FFMPEG})
 
 if(ANDROID OR BLACKBERRY OR IOS)
 	if (NOT CMAKE_TOOLCHAIN_FILE)
@@ -250,7 +253,12 @@ if(NOT MSVC)
 		if (NOT CMAKE_C_COMPILER_ID STREQUAL "Intel" AND NOT CMAKE_C_COMPILER_ID STREQUAL "Clang")
 			add_definitions(-Wno-psabi)
 		endif()
-		add_definitions(-D_XOPEN_SOURCE=600 -D_XOPEN_SOURCE_EXTENDED -D__BSD_VISIBLE=1)
+		if (BLACKBERRY)
+			add_definitions(-D_XOPEN_SOURCE=600)
+		else()
+			add_definitions(-D_XOPEN_SOURCE=700)
+		endif()
+		add_definitions(-D_XOPEN_SOURCE_EXTENDED -D__BSD_VISIBLE=1)
 		add_definitions(-D_LARGEFILE64_SOURCE=1 -D_FILE_OFFSET_BITS=64)
 	endif()
 	set(CMAKE_CXX_FLAGS "${CMAKE_CXX_FLAGS} -std=c++11")
@@ -290,7 +298,8 @@ set(CommonExtra)
 if(ARM)
 	set(CommonExtra ${CommonExtra}
 		Common/ArmCPUDetect.cpp
-		Common/ArmThunk.cpp)
+		Common/ArmThunk.cpp
+		Common/ColorConvNEON.cpp)
 elseif(X86)
 	set(CommonExtra ${CommonExtra}
 		Common/ABI.cpp
@@ -408,96 +417,101 @@ add_library(stb_vorbis STATIC
 	native/ext/stb_vorbis/stb_vorbis.h)
 include_directories(native/ext/stb_vorbis)
 
-if(USE_FFMPEG AND NOT DEFINED FFMPEG_BUILDDIR)
-	if(ANDROID)
-		if(ARMV7)
-			set(PLATFORM_ARCH "android/armv7")
-		elseif(ARM)
-			set(PLATFORM_ARCH "android/arm")
-		elseif(X86)
-			set(PLATFORM_ARCH "android/x86")
-		endif()
-	elseif(BLACKBERRY)
-		set(PLATFORM_ARCH "blackberry/armv7")
-	elseif(IOS)
-		set(PLATFORM_ARCH "ios/universal")
-	elseif(MACOSX)
-		set(PLATFORM_ARCH "macosx/x86_64")
-	elseif(LINUX)
-		if(ARMV7)
-			set(PLATFORM_ARCH "linux/armv7")
-		elseif(ARM)
-			set(PLATFORM_ARCH "linux/arm")
-		elseif(MIPS)
-			set(PLATFORM_ARCH "linux/mips32")
-		elseif(CMAKE_SIZEOF_VOID_P EQUAL 8)
-			set(PLATFORM_ARCH "linux/x86_64")
-		else()
-			set(PLATFORM_ARCH "linux/x86")
-		endif()
-	endif()
-	# Using static libraries
-	if (DEFINED PLATFORM_ARCH)
-		include_directories(ffmpeg/${PLATFORM_ARCH}/include)
-		link_directories(ffmpeg/${PLATFORM_ARCH}/lib)
-		set(FFMPEG_LIBRARIES libavformat.a libavcodec.a libavutil.a libswresample.a libswscale.a)
-	else()
-		# Manual definition of system library locations by the user.
-		if (DEFINED FFMPEG_INCLUDE_PATH)
-			include_directories(ffmpeg ${FFMPEG_INCLUDE_PATH})
-		endif()
-		if (DEFINED AVFORMAT_PATH)
-			add_library(libavformat STATIC IMPORTED)
-			set_target_properties(libavformat PROPERTIES IMPORTED_LOCATION ${AVFORMAT_PATH})
-			SET (FFMPEG_LIBRARIES ${FFMPEG_LIBRARIES} libavformat)
-		endif()
-		if (DEFINED AVCODEC_PATH)
-			add_library(libavcodec STATIC IMPORTED)
-			set_target_properties(libavcodec PROPERTIES IMPORTED_LOCATION ${AVCODEC_PATH})
-			SET (FFMPEG_LIBRARIES ${FFMPEG_LIBRARIES} libavcodec)
-		endif()
-		if (DEFINED AVUTIL_PATH)
-			add_library(libavutil STATIC IMPORTED)
-			set_target_properties(libavutil PROPERTIES IMPORTED_LOCATION ${AVUTIL_PATH})
-			SET (FFMPEG_LIBRARIES ${FFMPEG_LIBRARIES} libavutil)
-		endif()
-		if (DEFINED SWRESAMPLE_PATH)
-			add_library(libswresample STATIC IMPORTED)
-			set_target_properties(libswresample PROPERTIES IMPORTED_LOCATION ${SWRESAMPLE_PATH})
-			SET (FFMPEG_LIBRARIES ${FFMPEG_LIBRARIES} libswresample)
-		endif()
-		if (DEFINED SWSCALE_PATH)
-			add_library(libswscale STATIC IMPORTED)
-			set_target_properties(libswscale PROPERTIES IMPORTED_LOCATION ${SWSCALE_PATH})
-			SET (FFMPEG_LIBRARIES ${FFMPEG_LIBRARIES} libswscale)
-		endif()
-	endif(DEFINED PLATFORM_ARCH)
-endif(USE_FFMPEG AND NOT DEFINED FFMPEG_BUILDDIR)
-
 if(USE_FFMPEG)
-	# Using shared libraries
-	if(DEFINED FFMPEG_BUILDDIR)
-		include_directories(ffmpeg ${FFMPEG_BUILDDIR})
-
-		add_library(libavformat STATIC IMPORTED)
-		set_target_properties(libavformat PROPERTIES IMPORTED_LOCATION ${FFMPEG_BUILDDIR}/libavformat/libavformat.a)
-		add_library(libavcodec STATIC IMPORTED)
-		set_target_properties(libavcodec PROPERTIES IMPORTED_LOCATION ${FFMPEG_BUILDDIR}/libavcodec/libavcodec.a)
-		add_library(libavutil STATIC IMPORTED)
-		set_target_properties(libavutil PROPERTIES IMPORTED_LOCATION ${FFMPEG_BUILDDIR}/libavutil/libavutil.a)
-		add_library(libswresample STATIC IMPORTED)
-		set_target_properties(libswresample PROPERTIES IMPORTED_LOCATION ${FFMPEG_BUILDDIR}/libswresample/libswresample.a)
-		add_library(libswscale STATIC IMPORTED)
-		set_target_properties(libswscale PROPERTIES IMPORTED_LOCATION ${FFMPEG_BUILDDIR}/libswscale/libswscale.a)
-
-		SET (FFMPEG_LIBRARIES
-			libavformat
-			libavcodec
-			libavutil
-			libswresample
-			libswscale
-		)
+	if(USE_SYSTEM_FFMPEG)
+		include(FindFFMPEG)
+	else()
+		set(FFMPEG_FOUND OFF)
 	endif()
+	if(NOT FFMPEG_FOUND)
+		if(NOT DEFINED FFMPEG_BUILDDIR)
+			if(ANDROID)
+				if(ARMV7)
+					set(PLATFORM_ARCH "android/armv7")
+				elseif(ARM)
+					set(PLATFORM_ARCH "android/arm")
+				elseif(X86)
+					set(PLATFORM_ARCH "android/x86")
+				endif()
+			elseif(BLACKBERRY)
+				set(PLATFORM_ARCH "blackberry/armv7")
+			elseif(IOS)
+				set(PLATFORM_ARCH "ios/universal")
+			elseif(MACOSX)
+				set(PLATFORM_ARCH "macosx/x86_64")
+			elseif(LINUX)
+				if(ARMV7)
+					set(PLATFORM_ARCH "linux/armv7")
+				elseif(ARM)
+					set(PLATFORM_ARCH "linux/arm")
+				elseif(MIPS)
+					set(PLATFORM_ARCH "linux/mips32")
+				elseif(CMAKE_SIZEOF_VOID_P EQUAL 8)
+					set(PLATFORM_ARCH "linux/x86_64")
+				else()
+					set(PLATFORM_ARCH "linux/x86")
+				endif()
+			endif()
+			# Using static libraries
+			if (DEFINED PLATFORM_ARCH)
+				include_directories(ffmpeg/${PLATFORM_ARCH}/include)
+				link_directories(ffmpeg/${PLATFORM_ARCH}/lib)
+				set(FFMPEG_LIBRARIES libavformat.a libavcodec.a libavutil.a libswresample.a libswscale.a)
+			else()
+				# Manual definition of system library locations by the user.
+				if (DEFINED FFMPEG_INCLUDE_PATH)
+					include_directories(ffmpeg ${FFMPEG_INCLUDE_PATH})
+				endif()
+				if (DEFINED AVFORMAT_PATH)
+					add_library(libavformat STATIC IMPORTED)
+					set_target_properties(libavformat PROPERTIES IMPORTED_LOCATION ${AVFORMAT_PATH})
+					SET (FFMPEG_LIBRARIES ${FFMPEG_LIBRARIES} libavformat)
+				endif()
+				if (DEFINED AVCODEC_PATH)
+					add_library(libavcodec STATIC IMPORTED)
+					set_target_properties(libavcodec PROPERTIES IMPORTED_LOCATION ${AVCODEC_PATH})
+					SET (FFMPEG_LIBRARIES ${FFMPEG_LIBRARIES} libavcodec)
+				endif()
+				if (DEFINED AVUTIL_PATH)
+					add_library(libavutil STATIC IMPORTED)
+					set_target_properties(libavutil PROPERTIES IMPORTED_LOCATION ${AVUTIL_PATH})
+					SET (FFMPEG_LIBRARIES ${FFMPEG_LIBRARIES} libavutil)
+				endif()
+				if (DEFINED SWRESAMPLE_PATH)
+					add_library(libswresample STATIC IMPORTED)
+					set_target_properties(libswresample PROPERTIES IMPORTED_LOCATION ${SWRESAMPLE_PATH})
+					SET (FFMPEG_LIBRARIES ${FFMPEG_LIBRARIES} libswresample)
+				endif()
+				if (DEFINED SWSCALE_PATH)
+					add_library(libswscale STATIC IMPORTED)
+					set_target_properties(libswscale PROPERTIES IMPORTED_LOCATION ${SWSCALE_PATH})
+					SET (FFMPEG_LIBRARIES ${FFMPEG_LIBRARIES} libswscale)
+				endif()
+			endif(DEFINED PLATFORM_ARCH)
+		else(NOT DEFINED FFMPEG_BUILDDIR)
+			# Using shared libraries
+			include_directories(ffmpeg ${FFMPEG_BUILDDIR})
+
+			add_library(libavformat STATIC IMPORTED)
+			set_target_properties(libavformat PROPERTIES IMPORTED_LOCATION ${FFMPEG_BUILDDIR}/libavformat/libavformat.a)
+			add_library(libavcodec STATIC IMPORTED)
+			set_target_properties(libavcodec PROPERTIES IMPORTED_LOCATION ${FFMPEG_BUILDDIR}/libavcodec/libavcodec.a)
+			add_library(libavutil STATIC IMPORTED)
+			set_target_properties(libavutil PROPERTIES IMPORTED_LOCATION ${FFMPEG_BUILDDIR}/libavutil/libavutil.a)
+			add_library(libswresample STATIC IMPORTED)
+			set_target_properties(libswresample PROPERTIES IMPORTED_LOCATION ${FFMPEG_BUILDDIR}/libswresample/libswresample.a)
+			add_library(libswscale STATIC IMPORTED)
+			set_target_properties(libswscale PROPERTIES IMPORTED_LOCATION ${FFMPEG_BUILDDIR}/libswscale/libswscale.a)
+
+			SET (FFMPEG_LIBRARIES
+				libavformat
+				libavcodec
+				libavutil
+				libswresample
+				libswscale
+			)
+		endif(NOT DEFINED FFMPEG_BUILDDIR)
+	endif(NOT FFMPEG_FOUND)
 
 	find_library(ICONV_LIBRARY NAMES iconv)
 	if (ICONV_LIBRARY)
@@ -511,15 +525,25 @@ if(USE_FFMPEG)
 		endif()
 	endif(APPLE)
 
-	set(LinkCommon ${LinkCommon} ${FFMPEG_LIBRARIES})
+	if(FFMPEG_FOUND)
+		set(nativeExtraLibs ${nativeExtraLibs} ${FFMPEG_LIBRARIES})
+	else()
+		set(LinkCommon ${LinkCommon} ${FFMPEG_LIBRARIES})
+	endif()
+	target_link_libraries(Common ${FFMPEG_LIBRARIES})
 	add_definitions(-DUSE_FFMPEG)
 endif(USE_FFMPEG)
 
 # Modification to show where we are pulling the ffmpeg libraries from.
 if(USE_FFMPEG AND DEFINED FFMPEG_LIBRARIES)
-	target_link_libraries(Common ${FFMPEG_LIBRARIES})
 	message(STATUS "FFMPEG library locations:")
-	if(DEFINED PLATFORM_ARCH)
+	if(FFMPEG_FOUND)
+		message(STATUS "libavcodec location: ${FFMPEG_avcodec_LIBRARY}")
+		message(STATUS "libavformat location: ${FFMPEG_avformat_LIBRARY}")
+		message(STATUS "libavutil location: ${FFMPEG_avutil_LIBRARY}")
+		message(STATUS "libswresample location: ${FFMPEG_swresample_LIBRARY}")
+		message(STATUS "libswscale location: ${FFMPEG_swscale_LIBRARY}")
+	elseif(DEFINED PLATFORM_ARCH)
 		set(TEMP ${CMAKE_SOURCE_DIR}/ffmpeg/${PLATFORM_ARCH}/lib)
 		message(STATUS "libavcodec location: ${TEMP}/libavcodec.a")
 		message(STATUS "libavformat location: ${TEMP}/libavformat.a")
@@ -537,7 +561,7 @@ if(USE_FFMPEG AND DEFINED FFMPEG_LIBRARIES)
 		message(STATUS "libswresample location: ${TEMP}")
 		get_target_property(TEMP libswscale IMPORTED_LOCATION)
 		message(STATUS "libswscale location: ${TEMP}")
-	endif(DEFINED PLATFORM_ARCH)
+	endif()
 else()
 	message(STATUS "ERROR: No FFMPEG library locations")
 endif()
@@ -737,7 +761,7 @@ if(ANDROID)
 elseif(IOS)
 	set(nativeExtra ${nativeExtra}
 		ios/main.mm
-		ios/AppDelegate.m
+		ios/AppDelegate.mm
 		ios/AppDelegate.h
 		ios/ViewController.mm
 		ios/ViewController.h
@@ -751,7 +775,7 @@ elseif(IOS)
 		set(nativeExtraLibs ${nativeExtraLibs} "-weak_framework GameController")
 	endif()
 
-	set_source_files_properties(ios/AppDelegate.m PROPERTIES COMPILE_FLAGS -fobjc-arc)
+	set_source_files_properties(ios/AppDelegate.mm PROPERTIES COMPILE_FLAGS -fobjc-arc)
 	set_source_files_properties(ios/ViewController.mm PROPERTIES COMPILE_FLAGS -fobjc-arc)
 
 	set(TargetBin PPSSPP)
@@ -817,6 +841,7 @@ set(NativeAppSource
 	UI/OnScreenDisplay.cpp
 	UI/ControlMappingScreen.cpp
 	UI/ReportScreen.cpp
+	UI/SavedataScreen.cpp
 	UI/Store.cpp
 	UI/CwCheatScreen.cpp
 	UI/InstallZipScreen.cpp
@@ -1337,11 +1362,23 @@ add_library(${CoreLibName} ${CoreLinkType}
 	Core/Host.h
 	Core/Loaders.cpp
 	Core/Loaders.h
+	Core/FileLoaders/CachingFileLoader.cpp
+	Core/FileLoaders/CachingFileLoader.h
+	Core/FileLoaders/DiskCachingFileLoader.cpp
+	Core/FileLoaders/DiskCachingFileLoader.h
+	Core/FileLoaders/HTTPFileLoader.cpp
+	Core/FileLoaders/HTTPFileLoader.h
+	Core/FileLoaders/LocalFileLoader.cpp
+	Core/FileLoaders/LocalFileLoader.h
+	Core/FileLoaders/RetryingFileLoader.cpp
+	Core/FileLoaders/RetryingFileLoader.h
 	Core/MIPS/JitCommon/JitCommon.cpp
 	Core/MIPS/JitCommon/JitCommon.h
 	Core/MIPS/JitCommon/NativeJit.h
 	Core/MIPS/JitCommon/JitBlockCache.cpp
 	Core/MIPS/JitCommon/JitBlockCache.h
+	Core/MIPS/JitCommon/JitState.cpp
+	Core/MIPS/JitCommon/JitState.h
 	Core/MIPS/MIPS.cpp
 	Core/MIPS/MIPS.h
 	Core/MIPS/MIPSAnalyst.cpp
@@ -1592,6 +1629,7 @@ if(UNITTEST)
 		unittest/TestArmEmitter.cpp
 		unittest/TestArm64Emitter.cpp
 		unittest/TestX64Emitter.cpp
+		unittest/TestVertexJit.cpp
 		unittest/JitHarness.cpp
 		Core/MIPS/ARM/ArmRegCache.cpp
 		Core/MIPS/ARM/ArmRegCacheFPU.cpp
@@ -1604,20 +1642,25 @@ endif()
 
 if (TargetBin)
 	if (IOS OR APPLE)
+		if (APPLE AND NOT IOS)
 		set(ICON_PATH_ABS ${CMAKE_CURRENT_SOURCE_DIR}/assets/ppsspp.icns)
 		set( MACOSX_BUNDLE_ICON_FILE ppsspp.icns )
 		set_source_files_properties(${ICON_PATH_ABS} PROPERTIES MACOSX_PACKAGE_LOCATION "Resources")
+		endif()
 
 		# TODO: there must a native way to copy these.
 		# Now this is very prone to errors when changes occur.
-		# Also better to have assets under Resources dir.
+		# Also better to have assets under Resources dir for OS X.
 		file(GLOB_RECURSE FLASH0_FILES flash0/*)
 		file(GLOB_RECURSE LANG_FILES lang/*)
 		file(GLOB_RECURSE SHADER_FILES assets/shaders/*)
+
+		if (APPLE AND NOT IOS)
 		set_source_files_properties(${NativeAssets} PROPERTIES MACOSX_PACKAGE_LOCATION "MacOS/assets")
 		set_source_files_properties(${FLASH0_FILES} PROPERTIES MACOSX_PACKAGE_LOCATION "MacOS/assets/flash0/font")
 		set_source_files_properties(${LANG_FILES} PROPERTIES MACOSX_PACKAGE_LOCATION "MacOS/assets/lang")
 		set_source_files_properties(${SHADER_FILES} PROPERTIES MACOSX_PACKAGE_LOCATION "MacOS/assets/shaders")
+		endif()
 
 		add_executable(${TargetBin} MACOSX_BUNDLE ${ICON_PATH_ABS} ${NativeAssets} ${SHADER_FILES} ${FLASH0_FILES} ${LANG_FILES} ${NativeAppSource})
 	else()

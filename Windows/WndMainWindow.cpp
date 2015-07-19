@@ -71,7 +71,6 @@
 #include "GPU/GLES/TextureScaler.h"
 #include "GPU/GLES/TextureCache.h"
 #include "GPU/GLES/Framebuffer.h"
-#include "ControlMapping.h"
 #include "UI/OnScreenDisplay.h"
 #include "GPU/Common/PostShader.h"
 
@@ -217,12 +216,12 @@ namespace MainWindow
 	}
 
 	static void ShowScreenResolution() {
-		I18NCategory *g = GetI18NCategory("Graphics");
+		I18NCategory *gr = GetI18NCategory("Graphics");
 
 		std::ostringstream messageStream;
-		messageStream << g->T("Internal Resolution") << ": ";
+		messageStream << gr->T("Internal Resolution") << ": ";
 		messageStream << PSP_CoreParameter().renderWidth << "x" << PSP_CoreParameter().renderHeight << " ";
-		messageStream << g->T("Window Size") << ": ";
+		messageStream << gr->T("Window Size") << ": ";
 		messageStream << PSP_CoreParameter().pixelWidth << "x" << PSP_CoreParameter().pixelHeight;
 
 		osm.Show(messageStream.str(), 2.0f);
@@ -231,16 +230,32 @@ namespace MainWindow
 	static void UpdateRenderResolution() {
 		RECT rc;
 		GetClientRect(hwndMain, &rc);
+
+		// Actually, auto mode should be more granular...
 		// Round up to a zoom factor for the render size.
 		int zoom = g_Config.iInternalResolution;
-		if (zoom == 0) // auto mode
-			zoom = (rc.right - rc.left + 479) / 480;
+		if (zoom == 0) { // auto mode
+			// Use the longest dimension
+			if (g_Config.IsPortrait()) {
+				zoom = (rc.bottom - rc.top + 479) / 480;
+			} else {
+				zoom = (rc.right - rc.left + 479) / 480;
+			}
+		}
 		if (zoom <= 1)
 			zoom = 1;
 
-		// Actually, auto mode should be more granular...
-		PSP_CoreParameter().renderWidth = 480 * zoom;
-		PSP_CoreParameter().renderHeight = 272 * zoom;
+		if (g_Config.IsPortrait()) {
+			PSP_CoreParameter().renderWidth = 272 * zoom;
+			PSP_CoreParameter().renderHeight = 480 * zoom;
+		} else {
+			PSP_CoreParameter().renderWidth = 480 * zoom;
+			PSP_CoreParameter().renderHeight = 272 * zoom;
+		}
+	}
+
+	static bool IsWindowSmall() {
+		return g_Config.IsPortrait() ? (g_Config.iWindowHeight < 480 + 80) : (g_Config.iWindowWidth < 480 + 80);
 	}
 
 	static void ResizeDisplay(bool noWindowMovement = false) {
@@ -251,7 +266,7 @@ namespace MainWindow
 		if (!noWindowMovement) {
 			width = rc.right - rc.left;
 			height = rc.bottom - rc.top;
-			// Moves the internal window, not the frame. TODO: Get rid of the internal window.
+			// Moves the internal window, not the frame. TODO: Get rid of the internal window. Tried before but Intel drivers screw up when minimizing, or something?
 			MoveWindow(hwndDisplay, 0, 0, width, height, TRUE);
 			// This is taken care of anyway later, but makes sure that ShowScreenResolution gets the right numbers.
 			// Need to clean all of this up...
@@ -262,7 +277,7 @@ namespace MainWindow
 		UpdateRenderResolution();
 		
 		if (!noWindowMovement) {
-			if (UpdateScreenScale(width, height)) {
+			if (UpdateScreenScale(width, height, IsWindowSmall())) {
 				NativeMessageReceived("gpu resized", "");
 			}
 		}
@@ -271,7 +286,13 @@ namespace MainWindow
 	void SetWindowSize(int zoom) {
 		AssertCurrentThreadName("Main");
 		RECT rc, rcOuter;
-		GetWindowRectAtResolution(480 * (int)zoom, 272 * (int)zoom, rc, rcOuter);
+
+		// Actually, auto mode should be more granular...
+		if (g_Config.IsPortrait()) {
+			GetWindowRectAtResolution(272 * (int)zoom, 480 * (int)zoom, rc, rcOuter);
+		} else {
+			GetWindowRectAtResolution(480 * (int)zoom, 272 * (int)zoom, rc, rcOuter);
+		}
 		MoveWindow(hwndMain, rcOuter.left, rcOuter.top, rcOuter.right - rcOuter.left, rcOuter.bottom - rcOuter.top, TRUE);
 		ResizeDisplay(false);
 		ShowScreenResolution();
@@ -403,7 +424,8 @@ namespace MainWindow
 		// First, get the w/h right.
 		if (g_Config.iWindowWidth <= 0 || g_Config.iWindowHeight <= 0) {
 			RECT rcInner = rc, rcOuter;
-			GetWindowRectAtResolution(2 * 480, 2 * 272, rcInner, rcOuter);
+			bool portrait = g_Config.IsPortrait();
+			GetWindowRectAtResolution(2 * (portrait ? 272 : 480), 2 * (portrait ? 480 : 272), rcInner, rcOuter);
 			rc.right = rc.left + (rcOuter.right - rcOuter.left);
 			rc.bottom = rc.top + (rcOuter.bottom - rcOuter.top);
 			g_Config.iWindowWidth = rc.right - rc.left;
@@ -723,24 +745,24 @@ namespace MainWindow
 				g_Config.iRenderingMode = FB_NON_BUFFERED_MODE;
 		}
 
-		I18NCategory *g = GetI18NCategory("Graphics");
+		I18NCategory *gr = GetI18NCategory("Graphics");
 
 		switch(g_Config.iRenderingMode) {
 		case FB_NON_BUFFERED_MODE:
-			osm.Show(g->T("Non-Buffered Rendering"));
+			osm.Show(gr->T("Non-Buffered Rendering"));
 			g_Config.bAutoFrameSkip = false;
 			break;
 
 		case FB_BUFFERED_MODE:
-			osm.Show(g->T("Buffered Rendering"));
+			osm.Show(gr->T("Buffered Rendering"));
 			break;
 
 		case FB_READFBOMEMORY_CPU:
-			osm.Show(g->T("Read Framebuffers To Memory (CPU)"));
+			osm.Show(gr->T("Read Framebuffers To Memory (CPU)"));
 			break;
 
 		case FB_READFBOMEMORY_GPU:
-			osm.Show(g->T("Read Framebuffers To Memory (GPU)"));
+			osm.Show(gr->T("Read Framebuffers To Memory (GPU)"));
 			break;
 		}
 
@@ -759,13 +781,13 @@ namespace MainWindow
 				g_Config.iFrameSkip = FRAMESKIP_OFF;
 		}
 
-		I18NCategory *g = GetI18NCategory("Graphics");
+		I18NCategory *gr = GetI18NCategory("Graphics");
 
 		std::ostringstream messageStream;
-		messageStream << g->T("Frame Skipping") << ":" << " ";
+		messageStream << gr->T("Frame Skipping") << ":" << " ";
 
 		if (g_Config.iFrameSkip == FRAMESKIP_OFF)
-			messageStream << g->T("Off");
+			messageStream << gr->T("Off");
 		else
 			messageStream << g_Config.iFrameSkip;
 
@@ -941,9 +963,8 @@ namespace MainWindow
 
 	LRESULT CALLBACK DisplayProc(HWND hWnd, UINT message, WPARAM wParam, LPARAM lParam) {
 		// Only apply a factor > 1 in windowed mode.
-		int factor = !IsZoomed(GetHWND()) && !g_Config.bFullScreen && g_Config.iWindowWidth < (480 + 80) ? 2 : 1;
+		int factor = !IsZoomed(GetHWND()) && !g_Config.bFullScreen && IsWindowSmall() ? 2 : 1;
 		static bool firstErase = true;
-
 
 		switch (message) {
 		case WM_ACTIVATE:
@@ -1071,8 +1092,9 @@ namespace MainWindow
 			{
 				MINMAXINFO *minmax = reinterpret_cast<MINMAXINFO *>(lParam);
 				RECT rc = { 0 };
-				rc.right = 480;
-				rc.bottom = 272;
+				bool portrait = g_Config.IsPortrait();
+				rc.right = portrait ? 272 : 480;
+				rc.bottom = portrait ? 480 : 272;
 				AdjustWindowRect(&rc, WS_OVERLAPPEDWINDOW, TRUE);
 				minmax->ptMinTrackSize.x = rc.right - rc.left;
 				minmax->ptMinTrackSize.y = rc.bottom - rc.top;
@@ -1097,7 +1119,11 @@ namespace MainWindow
 					}
 				}
 
+				if (wParam == WA_ACTIVE) {
+					NativeMessageReceived("got_focus", "");
+				}
 				if (wParam == WA_INACTIVE) {
+					NativeMessageReceived("lost_focus", "");
 					WindowsRawInput::LoseFocus();
 					InputDevice::LoseFocus();
 				}
@@ -1175,7 +1201,7 @@ namespace MainWindow
 			{
 				if (!EmuThread_Ready())
 					return DefWindowProc(hWnd, message, wParam, lParam);
-				I18NCategory *g = GetI18NCategory("Graphics");
+				I18NCategory *gr = GetI18NCategory("Graphics");
 
 				wmId    = LOWORD(wParam); 
 				wmEvent = HIWORD(wParam); 
@@ -1240,7 +1266,7 @@ namespace MainWindow
 
 				case ID_EMULATION_CHEATS:
 					g_Config.bEnableCheats = !g_Config.bEnableCheats;
-					osm.ShowOnOff(g->T("Cheats"), g_Config.bEnableCheats);
+					osm.ShowOnOff(gr->T("Cheats"), g_Config.bEnableCheats);
 					break;
 
 				case ID_FILE_LOADSTATEFILE:
@@ -1398,7 +1424,7 @@ namespace MainWindow
 
 				case ID_OPTIONS_HARDWARETRANSFORM:
 					g_Config.bHardwareTransform = !g_Config.bHardwareTransform;
-					osm.ShowOnOff(g->T("Hardware Transform"), g_Config.bHardwareTransform);
+					osm.ShowOnOff(gr->T("Hardware Transform"), g_Config.bHardwareTransform);
 					break;
 
 				case ID_OPTIONS_STRETCHDISPLAY:
@@ -1819,8 +1845,11 @@ namespace MainWindow
 		RECT rc;
 		GetClientRect(GetHWND(), &rc);
 
+		int checkW = g_Config.IsPortrait() ? 272 : 480;
+		int checkH = g_Config.IsPortrait() ? 480 : 272;
+
 		for (int i = 0; i < ARRAY_SIZE(windowSizeItems); i++) {
-			bool check = (i + 1) * 480 == rc.right - rc.left || (i + 1) * 272 == rc.bottom - rc.top;
+			bool check = (i + 1) * checkW == rc.right - rc.left || (i + 1) * checkH == rc.bottom - rc.top;
 			CheckMenuItem(menu, windowSizeItems[i], MF_BYCOMMAND | (check ? MF_CHECKED : MF_UNCHECKED));
 		}
 

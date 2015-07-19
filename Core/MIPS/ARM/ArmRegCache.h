@@ -74,7 +74,7 @@ struct RegARM {
 struct RegMIPS {
 	// Where is this MIPS register?
 	ArmJitConstants::RegMIPSLoc loc;
-	// Data (only one of these is used, depending on loc. Could make a union).
+	// Data (both or only one may be used, depending on loc.)
 	u32 imm;
 	ArmGen::ARMReg reg;  // reg index
 	bool spillLock;  // if true, this register cannot be spilled.
@@ -82,13 +82,13 @@ struct RegMIPS {
 };
 
 namespace MIPSComp {
-	struct ArmJitOptions;
+	struct JitOptions;
 	struct JitState;
 }
 
 class ArmRegCache {
 public:
-	ArmRegCache(MIPSState *mips, MIPSComp::JitState *js, MIPSComp::ArmJitOptions *jo);
+	ArmRegCache(MIPSState *mips, MIPSComp::JitState *js, MIPSComp::JitOptions *jo);
 	~ArmRegCache() {}
 
 	void Init(ArmGen::ARMXEmitter *emitter);
@@ -143,7 +143,7 @@ private:
 	MIPSState *mips_;
 	ArmGen::ARMXEmitter *emit_;
 	MIPSComp::JitState *js_;
-	MIPSComp::ArmJitOptions *jo_;
+	MIPSComp::JitOptions *jo_;
 	u32 compilerPC_;
 
 	enum {

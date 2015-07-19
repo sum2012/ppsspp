@@ -15,8 +15,17 @@
 // Official git repository and contact information can be found at
 // https://github.com/hrydgard/ppsspp and http://www.ppsspp.org/.
 
+/*
+#define WIN32_LEAN_AND_MEAN
+#include <Windows.h>
+#undef min
+#undef max
+*/
+
 #include <string.h>
 #include <algorithm>
+
+#include "profiler/profiler.h"
 
 #include "Common/CPUDetect.h"
 #include "Core/Config.h"
@@ -294,16 +303,10 @@ static void SplinePatchFullQuality(u8 *&dest, u16 *indices, int &count, const Sp
 	// Full (mostly) correct tessellation of spline patches.
 	// Not very fast.
 
-	// First, generate knot vectors.
-	int n = spatch.count_u - 1;
-	int m = spatch.count_v - 1;
-
-
-
-	float *knot_u = new float[n + 5];
-	float *knot_v = new float[m + 5];
-	spline_knot(n, spatch.type_u, knot_u);
-	spline_knot(m, spatch.type_v, knot_v);
+	float *knot_u = new float[spatch.count_u + 4];
+	float *knot_v = new float[spatch.count_v + 4];
+	spline_knot(spatch.count_u - 1, spatch.type_u, knot_u);
+	spline_knot(spatch.count_v - 1, spatch.type_v, knot_v);
 
 	// Increase tesselation based on the size. Should be approximately right?
 	int patch_div_s = (spatch.count_u - 3) * gstate.getPatchDivisionU();
@@ -313,14 +316,14 @@ static void SplinePatchFullQuality(u8 *&dest, u16 *indices, int &count, const Sp
 		patch_div_t /= quality;
 	}
 
-	if (patch_div_s < 2) patch_div_s = 2;
-	if (patch_div_t < 2) patch_div_t = 2;
-
 	// Downsample until it fits, in case crazy tesselation factors are sent.
 	while ((patch_div_s + 1) * (patch_div_t + 1) > maxVertices) {
 		patch_div_s /= 2;
 		patch_div_t /= 2;
 	}
+
+	if (patch_div_s < 2) patch_div_s = 2;
+	if (patch_div_t < 2) patch_div_t = 2;
 
 	// First compute all the vertices and put them in an array
 	SimpleVertex *&vertices = (SimpleVertex*&)dest;
@@ -328,13 +331,19 @@ static void SplinePatchFullQuality(u8 *&dest, u16 *indices, int &count, const Sp
 	float tu_width = (float)spatch.count_u - 3.0f;
 	float tv_height = (float)spatch.count_v - 3.0f;
 
+	// int max_idx = spatch.count_u * spatch.count_v;
+
 	bool computeNormals = gstate.isLightingEnabled();
+
+	float one_over_patch_div_s = 1.0f / (float)(patch_div_s);
+	float one_over_patch_div_t = 1.0f / (float)(patch_div_t);
+
 	for (int tile_v = 0; tile_v < patch_div_t + 1; tile_v++) {
-		float v = ((float)tile_v * (float)(m - 2) / (float)(patch_div_t + 0.00001f));  // epsilon to prevent division by 0 in spline_s
+		float v = (float)tile_v * (float)(spatch.count_v - 3) * one_over_patch_div_t;
 		if (v < 0.0f)
 			v = 0.0f;
 		for (int tile_u = 0; tile_u < patch_div_s + 1; tile_u++) {
-			float u = ((float)tile_u * (float)(n - 2) / (float)(patch_div_s + 0.00001f));
+			float u = (float)tile_u * (float)(spatch.count_u - 3) * one_over_patch_div_s;
 			if (u < 0.0f)
 				u = 0.0f;
 			SimpleVertex *vert = &vertices[tile_v * (patch_div_s + 1) + tile_u];
@@ -354,9 +363,10 @@ static void SplinePatchFullQuality(u8 *&dest, u16 *indices, int &count, const Sp
 				vert->uv[0] = 0.0f;
 				vert->uv[1] = 0.0f;
 			} else {
-				vert->uv[0] = tu_width * ((float)tile_u / (float)patch_div_s);
-				vert->uv[1] = tv_height * ((float)tile_v / (float)patch_div_t);
+				vert->uv[0] = tu_width * ((float)tile_u * one_over_patch_div_s);
+				vert->uv[1] = tv_height * ((float)tile_v * one_over_patch_div_t);
 			}
+
 
 			// Collect influences from surrounding control points.
 			float u_weights[4];
@@ -364,12 +374,18 @@ static void SplinePatchFullQuality(u8 *&dest, u16 *indices, int &count, const Sp
 
 			int iu = (int)u;
 			int iv = (int)v;
+
+			// TODO: Would really like to fix the surrounding logic somehow to get rid of these but I can't quite get it right..
+			// Without the previous epsilons and with large count_u, we will end up doing an out of bounds access later without these.
+			if (iu >= spatch.count_u - 3) iu = spatch.count_u - 4;
+			if (iv >= spatch.count_v - 3) iv = spatch.count_v - 4;
+
 			spline_n_4(iu, u, knot_u, u_weights);
 			spline_n_4(iv, v, knot_v, v_weights);
 
 			// Handle degenerate patches. without this, spatch.points[] may read outside the number of initialized points.
-			int patch_w = std::min(spatch.count_u, 4);
-			int patch_h = std::min(spatch.count_v, 4);
+			int patch_w = std::min(spatch.count_u - iu, 4);
+			int patch_h = std::min(spatch.count_v - iv, 4);
 
 			for (int ii = 0; ii < patch_w; ++ii) {
 				for (int jj = 0; jj < patch_h; ++jj) {
@@ -384,6 +400,13 @@ static void SplinePatchFullQuality(u8 *&dest, u16 *indices, int &count, const Sp
 						Vec4f fv = Vec4f::AssignToAll(f);
 #endif
 						int idx = spatch.count_u * (iv + jj) + (iu + ii);
+						/*
+						if (idx >= max_idx) {
+							char temp[512];
+							snprintf(temp, sizeof(temp), "count_u: %d count_v: %d patch_w: %d patch_h: %d  ii: %d  jj: %d  iu: %d  iv: %d  patch_div_s: %d  patch_div_t: %d\n", spatch.count_u, spatch.count_v, patch_w, patch_h, ii, jj, iu, iv, patch_div_s, patch_div_t);
+							OutputDebugStringA(temp);
+							DebugBreak();
+						}*/
 						SimpleVertex *a = spatch.points[idx];
 						AccumulateWeighted(vert_pos, a->pos, fv);
 						if (origTc) {
@@ -598,8 +621,6 @@ static void _BezierPatchLowQuality(u8 *&dest, u16 *&indices, int &count, int tes
 
 static void _BezierPatchHighQuality(u8 *&dest, u16 *&indices, int &count, int tess_u, int tess_v, const BezierPatch &patch, u32 origVertType, int maxVertices) {
 	const float third = 1.0f / 3.0f;
-	// Full correct tesselation of bezier patches.
-	// Note: Does not handle splines correctly.
 
 	// Downsample until it fits, in case crazy tesselation factors are sent.
 	while ((tess_u + 1) * (tess_v + 1) > maxVertices) {
@@ -663,7 +684,6 @@ static void _BezierPatchHighQuality(u8 *&dest, u16 *&indices, int &count, int te
 				Vec3Packedf derivU = Bernstein3D(derivU1_, derivU2_, derivU3_, derivU4_, bv);
 				Vec3Packedf derivV = Bernstein3DDerivative(pos1, pos2, pos3, pos4, bv);
 
-				// TODO: Interpolate normals instead of generating them, if available?
 				vert.nrm = Cross(derivU, derivV).Normalized();
 				if (gstate.patchfacing & 1)
 					vert.nrm *= -1.0f;
@@ -734,7 +754,12 @@ u32 DrawEngineCommon::NormalizeVertices(u8 *outPtr, u8 *bufPtr, const u8 *inPtr,
 const GEPrimitiveType primType[] = { GE_PRIM_TRIANGLES, GE_PRIM_LINES, GE_PRIM_POINTS };
 
 void DrawEngineCommon::SubmitSpline(const void *control_points, const void *indices, int count_u, int count_v, int type_u, int type_v, GEPatchPrimType prim_type, u32 vertType) {
+	PROFILE_THIS_SCOPE("spline");
 	DispatchFlush();
+
+	// TODO: Verify correct functionality with < 4.
+	if (count_u < 4 || count_v < 4)
+		return;
 
 	u16 index_lower_bound = 0;
 	u16 index_upper_bound = count_u * count_v - 1;
@@ -808,6 +833,8 @@ void DrawEngineCommon::SubmitSpline(const void *control_points, const void *indi
 }
 
 void DrawEngineCommon::SubmitBezier(const void *control_points, const void *indices, int count_u, int count_v, GEPatchPrimType prim_type, u32 vertType) {
+	PROFILE_THIS_SCOPE("bezier");
+
 	DispatchFlush();
 
 	// TODO: Verify correct functionality with < 4.
