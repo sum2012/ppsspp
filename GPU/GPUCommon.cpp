@@ -355,7 +355,8 @@ u32 GPUCommon::UpdateStall(int listid, u32 newstall) {
 		return SCE_KERNEL_ERROR_ALREADY;
 
 	dl.stall = newstall & 0x0FFFFFFF;
-	
+	if (dl.signal == PSP_GE_SIGNAL_HANDLER_PAUSE)
+		dl.signal = PSP_GE_SIGNAL_HANDLER_SUSPEND;
 	guard.unlock();
 	ProcessDLQueue();
 
