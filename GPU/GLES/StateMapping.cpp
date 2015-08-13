@@ -190,7 +190,7 @@ bool TransformDrawEngine::ApplyShaderBlending() {
 		return false;
 	}
 
-	framebufferManager_->BindFramebufferColor(GL_TEXTURE1, NULL);
+	framebufferManager_->BindFramebufferColor(GL_TEXTURE1, gstate.getFrameBufRawAddress(), nullptr);
 	glActiveTexture(GL_TEXTURE1);
 	// If we are rendering at a higher resolution, linear is probably best for the dest color.
 	glTexParameteri(GL_TEXTURE_2D, GL_TEXTURE_MAG_FILTER, GL_LINEAR);
@@ -314,7 +314,8 @@ void TransformDrawEngine::ApplyStencilReplaceAndLogicOp(ReplaceAlphaType replace
 	}
 }
 
-// Called even if AlphaBlendEnable == false
+// Called even if AlphaBlendEnable == false - it also deals with stencil-related blend state.
+
 void TransformDrawEngine::ApplyBlendState() {
 	// Blending is a bit complex to emulate.  This is due to several reasons:
 	//
@@ -742,7 +743,7 @@ void TransformDrawEngine::ApplyDrawState(int prim) {
 		renderHeightFactor = renderHeight / 272.0f;
 	}
 
-	renderX += gstate_c.cutRTOffsetX * renderWidthFactor;
+	renderX += gstate_c.curRTOffsetX * renderWidthFactor;
 
 	// Scissor
 	int scissorX1 = gstate.getScissorX1();
