@@ -19,6 +19,7 @@
 
 #include "base/compat.h"
 #include "gfx_es2/gl_state.h"
+#include "gfx_es2/gpu_features.h"
 #include "i18n/i18n.h"
 #include "ui/ui_context.h"
 #include "ui/view.h"
@@ -337,7 +338,7 @@ void SystemInfoScreen::CreateViews() {
 	Thin3DContext *thin3d = screenManager()->getThin3DContext();
 
 	deviceSpecs->Add(new InfoItem("3D API", thin3d->GetInfoString(T3DInfo::APINAME)));
-	deviceSpecs->Add(new InfoItem("Vendor", thin3d->GetInfoString(T3DInfo::VENDOR)));
+	deviceSpecs->Add(new InfoItem("Vendor", std::string(thin3d->GetInfoString(T3DInfo::VENDORSTRING)) + " (" + thin3d->GetInfoString(T3DInfo::VENDOR) + ")"));
 	deviceSpecs->Add(new InfoItem("Model", thin3d->GetInfoString(T3DInfo::RENDERER)));
 #ifdef _WIN32
 	deviceSpecs->Add(new InfoItem("Driver Version", System_GetProperty(SYSPROP_GPUDRIVER_VERSION)));
@@ -362,8 +363,18 @@ void SystemInfoScreen::CreateViews() {
 
 
 	deviceSpecs->Add(new ItemHeader("Version Information"));
-	std::string apiVersion = thin3d->GetInfoString(T3DInfo::APIVERSION);
-	apiVersion.resize(30);
+	std::string apiVersion;
+	if (g_Config.iGPUBackend == GPU_BACKEND_OPENGL) {
+#ifdef USING_GLES2
+		apiVersion = StringFromFormat("v%d.%d.%d ES", gl_extensions.ver[0], gl_extensions.ver[1], gl_extensions.ver[2]);
+#else
+		apiVersion = StringFromFormat("v%d.%d.%d", gl_extensions.ver[0], gl_extensions.ver[1], gl_extensions.ver[2]);
+#endif
+	} else {
+		apiVersion = thin3d->GetInfoString(T3DInfo::APIVERSION);
+		if (apiVersion.size() > 30)
+			apiVersion.resize(30);
+	}
 	deviceSpecs->Add(new InfoItem("API Version", apiVersion));
 	deviceSpecs->Add(new InfoItem("Shading Language", thin3d->GetInfoString(T3DInfo::SHADELANGVERSION)));
 
@@ -381,20 +392,6 @@ void SystemInfoScreen::CreateViews() {
 	deviceSpecs->Add(new InfoItem("Display resolution", temp));
 #endif
 
-	if (gl_extensions.precision[0] != 0) {
-		const char *stypes[2] = { "Vertex", "Fragment" };
-		const char *ptypes[6] = { "LowF", "MediumF", "HighF", "LowI", "MediumI", "HighI" };
-
-		for (int st = 0; st < 2; st++) {
-			char bufValue[256], bufTitle[256];
-			for (int p = 0; p < 6; p++) {
-				snprintf(bufTitle, sizeof(bufTitle), "Precision %s %s:", stypes[st], ptypes[p]);
-				snprintf(bufValue, sizeof(bufValue), "(%i, %i): %i", gl_extensions.range[st][p][0], gl_extensions.range[st][p][1], gl_extensions.precision[st][p]);
-				deviceSpecs->Add(new InfoItem(bufTitle, bufValue, new LayoutParams(FILL_PARENT, 30)));
-			}
-		}
-	}
-
 	ViewGroup *cpuExtensionsScroll = new ScrollView(ORIENT_VERTICAL, new LinearLayoutParams(FILL_PARENT, FILL_PARENT));
 	LinearLayout *cpuExtensions = new LinearLayout(ORIENT_VERTICAL);
 	cpuExtensions->SetSpacing(0);
@@ -408,7 +405,7 @@ void SystemInfoScreen::CreateViews() {
 	for (size_t i = 2; i < exts.size(); i++) {
 		cpuExtensions->Add(new TextView(exts[i]))->SetFocusable(true);
 	}
-	
+
 	ViewGroup *oglExtensionsScroll = new ScrollView(ORIENT_VERTICAL, new LinearLayoutParams(FILL_PARENT, FILL_PARENT));
 	LinearLayout *oglExtensions = new LinearLayout(ORIENT_VERTICAL);
 	oglExtensions->SetSpacing(0);

@@ -190,7 +190,7 @@ bool TransformDrawEngine::ApplyShaderBlending() {
 		return false;
 	}
 
-	framebufferManager_->BindFramebufferColor(GL_TEXTURE1, NULL);
+	framebufferManager_->BindFramebufferColor(GL_TEXTURE1, gstate.getFrameBufRawAddress(), nullptr);
 	glActiveTexture(GL_TEXTURE1);
 	// If we are rendering at a higher resolution, linear is probably best for the dest color.
 	glTexParameteri(GL_TEXTURE_2D, GL_TEXTURE_MAG_FILTER, GL_LINEAR);
@@ -203,6 +203,7 @@ bool TransformDrawEngine::ApplyShaderBlending() {
 }
 
 inline void TransformDrawEngine::ResetShaderBlending() {
+	// Wait - what does this have to do with FBOs?
 	if (fboTexBound_) {
 		glActiveTexture(GL_TEXTURE1);
 		glBindTexture(GL_TEXTURE_2D, 0);
@@ -313,6 +314,8 @@ void TransformDrawEngine::ApplyStencilReplaceAndLogicOp(ReplaceAlphaType replace
 	}
 }
 
+// Called even if AlphaBlendEnable == false - it also deals with stencil-related blend state.
+
 void TransformDrawEngine::ApplyBlendState() {
 	// Blending is a bit complex to emulate.  This is due to several reasons:
 	//
@@ -325,7 +328,7 @@ void TransformDrawEngine::ApplyBlendState() {
 	// If we can't apply blending, we make a copy of the framebuffer and do it manually.
 	gstate_c.allowShaderBlend = !g_Config.bDisableSlowFramebufEffects;
 
-	ReplaceBlendType replaceBlend = ReplaceBlendWithShader();
+	ReplaceBlendType replaceBlend = ReplaceBlendWithShader(gstate_c.allowShaderBlend);
 	ReplaceAlphaType replaceAlphaWithStencil = ReplaceAlphaWithStencil(replaceBlend);
 	bool usePreSrc = false;
 
@@ -360,9 +363,12 @@ void TransformDrawEngine::ApplyBlendState() {
 	glstate.blend.enable();
 	ResetShaderBlending();
 
-	GEBlendMode blendFuncEq = gstate.getBlendEq();
-	int blendFuncA  = gstate.getBlendFuncA();
-	int blendFuncB  = gstate.getBlendFuncB();
+	const GEBlendMode blendFuncEq = gstate.getBlendEq();
+	int blendFuncA = gstate.getBlendFuncA();
+	int blendFuncB = gstate.getBlendFuncB();
+	const u32 fixA = gstate.getFixA();
+	const u32 fixB = gstate.getFixB();
+
 	if (blendFuncA > GE_SRCBLEND_FIXA)
 		blendFuncA = GE_SRCBLEND_FIXA;
 	if (blendFuncB > GE_DSTBLEND_FIXB)
@@ -400,9 +406,9 @@ void TransformDrawEngine::ApplyBlendState() {
 
 	// Shortcut by using GL_ONE where possible, no need to set blendcolor
 	bool approxFuncA = false;
-	GLuint glBlendFuncA = blendFuncA == GE_SRCBLEND_FIXA ? blendColor2Func(gstate.getFixA(), approxFuncA) : aLookup[blendFuncA];
+	GLuint glBlendFuncA = blendFuncA == GE_SRCBLEND_FIXA ? blendColor2Func(fixA, approxFuncA) : aLookup[blendFuncA];
 	bool approxFuncB = false;
-	GLuint glBlendFuncB = blendFuncB == GE_DSTBLEND_FIXB ? blendColor2Func(gstate.getFixB(), approxFuncB) : bLookup[blendFuncB];
+	GLuint glBlendFuncB = blendFuncB == GE_DSTBLEND_FIXB ? blendColor2Func(fixB, approxFuncB) : bLookup[blendFuncB];
 
 	if (usePreSrc) {
 		glBlendFuncA = GL_ONE;
@@ -429,49 +435,49 @@ void TransformDrawEngine::ApplyBlendState() {
 	};
 
 	if (blendFuncA == GE_SRCBLEND_FIXA || blendFuncB == GE_DSTBLEND_FIXB) {
-		const Vec3f fixA = Vec3f::FromRGB(gstate.getFixA());
-		const Vec3f fixB = Vec3f::FromRGB(gstate.getFixB());
+		const Vec3f fixAVec = Vec3f::FromRGB(fixA);
+		const Vec3f fixBVec = Vec3f::FromRGB(fixB);
 		if (glBlendFuncA == GL_INVALID_ENUM && glBlendFuncB != GL_INVALID_ENUM) {
 			// Can use blendcolor trivially.
-			setBlendColorv(fixA);
+			setBlendColorv(fixAVec);
 			glBlendFuncA = GL_CONSTANT_COLOR;
 		} else if (glBlendFuncA != GL_INVALID_ENUM && glBlendFuncB == GL_INVALID_ENUM) {
 			// Can use blendcolor trivially.
-			setBlendColorv(fixB);
+			setBlendColorv(fixBVec);
 			glBlendFuncB = GL_CONSTANT_COLOR;
 		} else if (glBlendFuncA == GL_INVALID_ENUM && glBlendFuncB == GL_INVALID_ENUM) {
-			if (blendColorSimilar(fixA, Vec3f::AssignToAll(1.0f) - fixB)) {
+			if (blendColorSimilar(fixAVec, Vec3f::AssignToAll(1.0f) - fixBVec)) {
 				glBlendFuncA = GL_CONSTANT_COLOR;
 				glBlendFuncB = GL_ONE_MINUS_CONSTANT_COLOR;
-				setBlendColorv(fixA);
-			} else if (blendColorSimilar(fixA, fixB)) {
+				setBlendColorv(fixAVec);
+			} else if (blendColorSimilar(fixAVec, fixBVec)) {
 				glBlendFuncA = GL_CONSTANT_COLOR;
 				glBlendFuncB = GL_CONSTANT_COLOR;
-				setBlendColorv(fixA);
+				setBlendColorv(fixAVec);
 			} else {
-				DEBUG_LOG(G3D, "ERROR INVALID blendcolorstate: FixA=%06x FixB=%06x FuncA=%i FuncB=%i", gstate.getFixA(), gstate.getFixB(), gstate.getBlendFuncA(), gstate.getBlendFuncB());
+				DEBUG_LOG(G3D, "ERROR INVALID blendcolorstate: FixA=%06x FixB=%06x FuncA=%i FuncB=%i", fixA, fixB, blendFuncA, blendFuncB);
 				// Let's approximate, at least.  Close is better than totally off.
-				const bool nearZeroA = blendColorSimilar(fixA, Vec3f::AssignToAll(0.0f), 0.25f);
-				const bool nearZeroB = blendColorSimilar(fixB, Vec3f::AssignToAll(0.0f), 0.25f);
-				if (nearZeroA || blendColorSimilar(fixA, Vec3f::AssignToAll(1.0f), 0.25f)) {
+				const bool nearZeroA = blendColorSimilar(fixAVec, Vec3f::AssignToAll(0.0f), 0.25f);
+				const bool nearZeroB = blendColorSimilar(fixBVec, Vec3f::AssignToAll(0.0f), 0.25f);
+				if (nearZeroA || blendColorSimilar(fixAVec, Vec3f::AssignToAll(1.0f), 0.25f)) {
 					glBlendFuncA = nearZeroA ? GL_ZERO : GL_ONE;
 					glBlendFuncB = GL_CONSTANT_COLOR;
-					setBlendColorv(fixB);
+					setBlendColorv(fixBVec);
 				} else {
 					// We need to pick something.  Let's go with A as the fixed color.
 					glBlendFuncA = GL_CONSTANT_COLOR;
 					glBlendFuncB = nearZeroB ? GL_ZERO : GL_ONE;
-					setBlendColorv(fixA);
+					setBlendColorv(fixAVec);
 				}
 			}
 		} else {
 			// We optimized both, but that's probably not necessary, so let's pick one to be constant.
 			if (blendFuncA == GE_SRCBLEND_FIXA && !usePreSrc && approxFuncA) {
 				glBlendFuncA = GL_CONSTANT_COLOR;
-				setBlendColorv(fixA);
+				setBlendColorv(fixAVec);
 			} else if (approxFuncB) {
 				glBlendFuncB = GL_CONSTANT_COLOR;
-				setBlendColorv(fixB);
+				setBlendColorv(fixBVec);
 			} else {
 				defaultBlendColor();
 			}
@@ -737,7 +743,7 @@ void TransformDrawEngine::ApplyDrawState(int prim) {
 		renderHeightFactor = renderHeight / 272.0f;
 	}
 
-	renderX += gstate_c.cutRTOffsetX * renderWidthFactor;
+	renderX += gstate_c.curRTOffsetX * renderWidthFactor;
 
 	// Scissor
 	int scissorX1 = gstate.getScissorX1();
@@ -786,10 +792,10 @@ void TransformDrawEngine::ApplyDrawState(int prim) {
 		glstate.depthRange.set(0.0f, 1.0f);
 	} else {
 		// These we can turn into a glViewport call, offset by offsetX and offsetY. Math after.
-		float vpXScale = getFloat24(gstate.viewportx1);
-		float vpXCenter = getFloat24(gstate.viewportx2);
-		float vpYScale = getFloat24(gstate.viewporty1);
-		float vpYCenter = getFloat24(gstate.viewporty2);
+		float vpXScale = gstate.getViewportXScale();
+		float vpXCenter = gstate.getViewportXCenter();
+		float vpYScale = gstate.getViewportYScale();
+		float vpYCenter = gstate.getViewportYCenter();
 
 		// The viewport transform appears to go like this:
 		// Xscreen = -offsetX + vpXCenter + vpXScale * Xview
@@ -855,8 +861,7 @@ void TransformDrawEngine::ApplyDrawState(int prim) {
 
 		bool scaleChanged = gstate_c.vpWidthScale != wScale || gstate_c.vpHeightScale != hScale;
 		bool offsetChanged = gstate_c.vpXOffset != xOffset || gstate_c.vpYOffset != yOffset;
-		if (scaleChanged || offsetChanged)
-		{
+		if (scaleChanged || offsetChanged) {
 			gstate_c.vpWidthScale = wScale;
 			gstate_c.vpHeightScale = hScale;
 			gstate_c.vpXOffset = xOffset;
@@ -866,10 +871,10 @@ void TransformDrawEngine::ApplyDrawState(int prim) {
 
 		glstate.viewport.set(left, bottom, right - left, top - bottom);
 
-		float zScale = getFloat24(gstate.viewportz1) * (1.0f / 65535.0f);
-		float zOff = getFloat24(gstate.viewportz2) * (1.0f / 65535.0f);
-		float depthRangeMin = zOff - zScale;
-		float depthRangeMax = zOff + zScale;
+		float zScale = gstate.getViewportZScale() * (1.0f / 65535.0f);
+		float zCenter = gstate.getViewportZCenter() * (1.0f / 65535.0f);
+		float depthRangeMin = zCenter - zScale;
+		float depthRangeMax = zCenter + zScale;
 		glstate.depthRange.set(depthRangeMin, depthRangeMax);
 
 #ifndef MOBILE_DEVICE

@@ -286,7 +286,7 @@ void TransformDrawEngineDX9::ApplyBlendState() {
 	// Unfortunately, we can't really do this in Direct3D 9...
 	gstate_c.allowShaderBlend = false;
 
-	ReplaceBlendType replaceBlend = ReplaceBlendWithShader();
+	ReplaceBlendType replaceBlend = ReplaceBlendWithShader(gstate_c.allowShaderBlend);
 	ReplaceAlphaType replaceAlphaWithStencil = ReplaceAlphaWithStencil(replaceBlend);
 	bool usePreSrc = false;
 
@@ -671,7 +671,7 @@ void TransformDrawEngineDX9::ApplyDrawState(int prim) {
 		renderHeightFactor = renderHeight / 272.0f;
 	}
 
-	renderX += gstate_c.cutRTOffsetX * renderWidthFactor;
+	renderX += gstate_c.curRTOffsetX * renderWidthFactor;
 
 	bool throughmode = gstate.isModeThrough();
 
@@ -718,10 +718,10 @@ void TransformDrawEngineDX9::ApplyDrawState(int prim) {
 			(regionY2 - regionY1) * renderHeightFactor,
 			0.f, 1.f);
 	} else {
-		float vpXScale = getFloat24(gstate.viewportx1);
-		float vpXCenter = getFloat24(gstate.viewportx2);
-		float vpYScale = getFloat24(gstate.viewporty1);
-		float vpYCenter = getFloat24(gstate.viewporty2);
+		float vpXScale = gstate.getViewportXScale();
+		float vpXCenter = gstate.getViewportXCenter();
+		float vpYScale = gstate.getViewportYScale();
+		float vpYCenter = gstate.getViewportYCenter();
 
 		// The viewport transform appears to go like this: 
 		// Xscreen = -offsetX + vpXCenter + vpXScale * Xview
@@ -742,11 +742,12 @@ void TransformDrawEngineDX9::ApplyDrawState(int prim) {
 		vpWidth *= renderWidthFactor;
 		vpHeight *= renderHeightFactor;
 
-		float zScale = getFloat24(gstate.viewportz1) / 65535.0f;
-		float zOff = getFloat24(gstate.viewportz2) / 65535.0f;
+		float zScale = gstate.getViewportZScale() / 65535.0f;
+		float zCenter = gstate.getViewportZCenter() / 65535.0f;
 
-		float depthRangeMin = zOff - fabsf(zScale);
-		float depthRangeMax = zOff + fabsf(zScale);
+		// Note - we lose the sign of the zscale here. Although I suppose we still keep it in gstate_c.vpDepth...
+		float depthRangeMin = zCenter - fabsf(zScale);
+		float depthRangeMax = zCenter + fabsf(zScale);
 
 		gstate_c.vpDepth = zScale * 2;
 
@@ -807,4 +808,4 @@ void TransformDrawEngineDX9::ApplyDrawState(int prim) {
 	}
 }
 
-};
+}

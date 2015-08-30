@@ -374,6 +374,7 @@ add_library(Common STATIC
 	Common/StringUtils.h
 	Common/ThreadPools.cpp
 	Common/ThreadPools.h
+	Common/ThreadSafeList.h
 	Common/Timer.cpp
 	Common/Timer.h)
 include_directories(Common)
@@ -1454,6 +1455,7 @@ add_library(GPU OBJECT
 	GPU/Common/DepalettizeShaderCommon.h
 	GPU/Common/FramebufferCommon.cpp
 	GPU/Common/FramebufferCommon.h
+	GPU/Common/GPUDebugInterface.cpp
 	GPU/Common/GPUDebugInterface.h
 	GPU/Common/DrawEngineCommon.cpp
 	GPU/Common/DrawEngineCommon.h
@@ -1507,6 +1509,8 @@ add_library(GPU OBJECT
 	GPU/GPUInterface.h
 	GPU/GeDisasm.cpp
 	GPU/GeDisasm.h
+	GPU/GPU.cpp
+	GPU/GPU.h
 	GPU/GPUCommon.cpp
 	GPU/GPUCommon.h
 	GPU/GPUState.cpp

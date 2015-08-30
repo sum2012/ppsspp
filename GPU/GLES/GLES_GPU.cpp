@@ -805,7 +805,7 @@ void GLES_GPU::Execute_Prim(u32 op, u32 diff) {
 	}
 
 	// This also makes skipping drawing very effective.
-	framebufferManager_.SetRenderFrameBuffer();
+	framebufferManager_.SetRenderFrameBuffer(gstate_c.framebufChanged, gstate_c.skipDrawReason);
 	if (gstate_c.skipDrawReason & (SKIPDRAW_SKIPFRAME | SKIPDRAW_NON_DISPLAYED_FB))	{
 		transformDraw_.SetupVertexDecoder(gstate.vertType);
 		// Rough estimate, not sure what's correct.
@@ -881,7 +881,7 @@ void GLES_GPU::Execute_VertexTypeSkinning(u32 op, u32 diff) {
 
 void GLES_GPU::Execute_Bezier(u32 op, u32 diff) {
 	// This also make skipping drawing very effective.
-	framebufferManager_.SetRenderFrameBuffer();
+	framebufferManager_.SetRenderFrameBuffer(gstate_c.framebufChanged, gstate_c.skipDrawReason);
 	if (gstate_c.skipDrawReason & (SKIPDRAW_SKIPFRAME | SKIPDRAW_NON_DISPLAYED_FB))	{
 		// TODO: Should this eat some cycles?  Probably yes.  Not sure if important.
 		return;
@@ -917,12 +917,14 @@ void GLES_GPU::Execute_Bezier(u32 op, u32 diff) {
 	GEPatchPrimType patchPrim = gstate.getPatchPrimitiveType();
 	int bz_ucount = op & 0xFF;
 	int bz_vcount = (op >> 8) & 0xFF;
-	transformDraw_.SubmitBezier(control_points, indices, bz_ucount, bz_vcount, patchPrim, gstate.vertType);
+	bool computeNormals = gstate.isLightingEnabled();
+	bool patchFacing = gstate.patchfacing & 1;
+	transformDraw_.SubmitBezier(control_points, indices, gstate.getPatchDivisionU(), gstate.getPatchDivisionV(), bz_ucount, bz_vcount, patchPrim, computeNormals, patchFacing, gstate.vertType);
 }
 
 void GLES_GPU::Execute_Spline(u32 op, u32 diff) {
 	// This also make skipping drawing very effective.
-	framebufferManager_.SetRenderFrameBuffer();
+	framebufferManager_.SetRenderFrameBuffer(gstate_c.framebufChanged, gstate_c.skipDrawReason);
 	if (gstate_c.skipDrawReason & (SKIPDRAW_SKIPFRAME | SKIPDRAW_NON_DISPLAYED_FB))	{
 		// TODO: Should this eat some cycles?  Probably yes.  Not sure if important.
 		return;
@@ -960,7 +962,10 @@ void GLES_GPU::Execute_Spline(u32 op, u32 diff) {
 	int sp_utype = (op >> 16) & 0x3;
 	int sp_vtype = (op >> 18) & 0x3;
 	GEPatchPrimType patchPrim = gstate.getPatchPrimitiveType();
-	transformDraw_.SubmitSpline(control_points, indices, sp_ucount, sp_vcount, sp_utype, sp_vtype, patchPrim, gstate.vertType);
+	bool computeNormals = gstate.isLightingEnabled();
+	bool patchFacing = gstate.patchfacing & 1;
+	u32 vertType = gstate.vertType;
+	transformDraw_.SubmitSpline(control_points, indices, gstate.getPatchDivisionU(), gstate.getPatchDivisionV(), sp_ucount, sp_vcount, sp_utype, sp_vtype, patchPrim, computeNormals, patchFacing, vertType);
 }
 
 void GLES_GPU::Execute_BoundingBox(u32 op, u32 diff) {
@@ -1093,7 +1098,7 @@ void GLES_GPU::Execute_TexLevel(u32 op, u32 diff) {
 
 void GLES_GPU::Execute_LoadClut(u32 op, u32 diff) {
 	gstate_c.textureChanged |= TEXCHANGE_PARAMSONLY;
-	textureCache_.LoadClut();
+	textureCache_.LoadClut(gstate.getClutAddress(), gstate.getClutLoadBytes());
 	// This could be used to "dirty" textures with clut.
 }
 
@@ -1391,7 +1396,7 @@ void GLES_GPU::Execute_BlockTransferStart(u32 op, u32 diff) {
 	// TODO: Here we should check if the transfer overlaps a framebuffer or any textures,
 	// and take appropriate action. This is a block transfer between RAM and VRAM, or vice versa.
 	// Can we skip this on SkipDraw?
-	DoBlockTransfer();
+	DoBlockTransfer(gstate_c.skipDrawReason);
 
 	// Fixes Gran Turismo's funky text issue, since it overwrites the current texture.
 	gstate_c.textureChanged = TEXCHANGE_UPDATED;
@@ -1954,7 +1959,7 @@ void GLES_GPU::UpdateStats() {
 	gpuStats.numFBOs = (int)framebufferManager_.NumVFBs();
 }
 
-void GLES_GPU::DoBlockTransfer() {
+void GLES_GPU::DoBlockTransfer(u32 skipDrawReason) {
 	// TODO: This is used a lot to copy data around between render targets and textures,
 	// and also to quickly load textures from RAM to VRAM. So we should do checks like the following:
 	//  * Does dstBasePtr point to an existing texture? If so maybe reload it immediately.
@@ -2008,7 +2013,7 @@ void GLES_GPU::DoBlockTransfer() {
 	}
 
 	// Tell the framebuffer manager to take action if possible. If it does the entire thing, let's just return.
-	if (!framebufferManager_.NotifyBlockTransferBefore(dstBasePtr, dstStride, dstX, dstY, srcBasePtr, srcStride, srcX, srcY, width, height, bpp)) {
+	if (!framebufferManager_.NotifyBlockTransferBefore(dstBasePtr, dstStride, dstX, dstY, srcBasePtr, srcStride, srcX, srcY, width, height, bpp, skipDrawReason)) {
 		// Do the copy! (Hm, if we detect a drawn video frame (see below) then we could maybe skip this?)
 		// Can use GetPointerUnchecked because we checked the addresses above. We could also avoid them
 		// entirely by walking a couple of pointers...
@@ -2031,7 +2036,7 @@ void GLES_GPU::DoBlockTransfer() {
 		}
 
 		textureCache_.Invalidate(dstBasePtr + (dstY * dstStride + dstX) * bpp, height * dstStride * bpp, GPU_INVALIDATE_HINT);
-		framebufferManager_.NotifyBlockTransferAfter(dstBasePtr, dstStride, dstX, dstY, srcBasePtr, srcStride, srcX, srcY, width, height, bpp);
+		framebufferManager_.NotifyBlockTransferAfter(dstBasePtr, dstStride, dstX, dstY, srcBasePtr, srcStride, srcX, srcY, width, height, bpp, skipDrawReason);
 	}
 
 #ifndef MOBILE_DEVICE
@@ -2067,7 +2072,7 @@ void GLES_GPU::InvalidateCacheInternal(u32 addr, int size, GPUInvalidationType t
 }
 
 void GLES_GPU::PerformMemoryCopyInternal(u32 dest, u32 src, int size) {
-	if (!framebufferManager_.NotifyFramebufferCopy(src, dest, size)) {
+	if (!framebufferManager_.NotifyFramebufferCopy(src, dest, size, false, gstate_c.skipDrawReason)) {
 		// We use a little hack for Download/Upload using a VRAM mirror.
 		// Since they're identical we don't need to copy.
 		if (!Memory::IsVRAMAddress(dest) || (dest ^ 0x00400000) != src) {
@@ -2078,7 +2083,7 @@ void GLES_GPU::PerformMemoryCopyInternal(u32 dest, u32 src, int size) {
 }
 
 void GLES_GPU::PerformMemorySetInternal(u32 dest, u8 v, int size) {
-	if (!framebufferManager_.NotifyFramebufferCopy(dest, dest, size, true)) {
+	if (!framebufferManager_.NotifyFramebufferCopy(dest, dest, size, true, gstate_c.skipDrawReason)) {
 		InvalidateCache(dest, size, GPU_INVALIDATE_HINT);
 	}
 }
@@ -2208,15 +2213,27 @@ void GLES_GPU::DoState(PointerWrap &p) {
 }
 
 bool GLES_GPU::GetCurrentFramebuffer(GPUDebugBuffer &buffer) {
-	return framebufferManager_.GetCurrentFramebuffer(buffer);
+	u32 fb_address = gstate.getFrameBufRawAddress();
+	int fb_stride = gstate.FrameBufStride();
+	GEBufferFormat format = gstate.FrameBufFormat();
+	return framebufferManager_.GetFramebuffer(fb_address, fb_stride, format, buffer);
 }
 
 bool GLES_GPU::GetCurrentDepthbuffer(GPUDebugBuffer &buffer) {
-	return framebufferManager_.GetCurrentDepthbuffer(buffer);
+	u32 fb_address = gstate.getFrameBufRawAddress();
+	int fb_stride = gstate.FrameBufStride();
+
+	u32 z_address = gstate.getDepthBufRawAddress();
+	int z_stride = gstate.DepthBufStride();
+
+	return framebufferManager_.GetDepthbuffer(fb_address, fb_stride, z_address, z_stride, buffer);
 }
 
 bool GLES_GPU::GetCurrentStencilbuffer(GPUDebugBuffer &buffer) {
-	return framebufferManager_.GetCurrentStencilbuffer(buffer);
+	u32 fb_address = gstate.getFrameBufRawAddress();
+	int fb_stride = gstate.FrameBufStride();
+
+	return framebufferManager_.GetStencilbuffer(fb_address, fb_stride, buffer);
 }
 
 bool GLES_GPU::GetCurrentTexture(GPUDebugBuffer &buffer, int level) {
