@@ -41,5 +41,4 @@ void Compatibility::Clear() {
 
 void Compatibility::LoadIniSection(IniFile &iniFile, std::string section) {
 	iniFile.Get(section.c_str(), "NoDepthRounding", &flags_.NoDepthRounding, flags_.NoDepthRounding);
-	iniFile.Get(section.c_str(), "GTAMusicFix", &flags_.GTAMusicFix, flags_.GTAMusicFix);
 }

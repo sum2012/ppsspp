@@ -46,7 +46,6 @@
 
 struct CompatFlags {
 	bool NoDepthRounding;
-	bool GTAMusicFix;
 };
 
 class IniFile;
