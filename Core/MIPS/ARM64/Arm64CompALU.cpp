@@ -602,6 +602,7 @@ void Arm64Jit::Comp_MulDivType(MIPSOpcode op) {
 		break;
 
 	case 24: //mult (the most popular one). lo,hi  = signed mul (rs * rt)
+		gpr.FlushR(MIPS_REG_LO);  
 		if (gpr.IsImm(rs) && gpr.IsImm(rt)) {
 			s64 result = (s64)(s32)gpr.GetImm(rs) * (s64)(s32)gpr.GetImm(rt);
 			gpr.SetImm(MIPS_REG_LO, (u64)result);
@@ -609,6 +610,7 @@ void Arm64Jit::Comp_MulDivType(MIPSOpcode op) {
 		}
 		gpr.MapDirtyInIn(MIPS_REG_LO, rs, rt);
 		SMULL(EncodeRegTo64(gpr.R(MIPS_REG_LO)), gpr.R(rs), gpr.R(rt));
+ gpr.FlushR(MIPS_REG_LO);
 		break;
 
 	case 25: //multu (2nd) lo,hi  = unsigned mul (rs * rt)
