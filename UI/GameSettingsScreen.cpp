@@ -607,6 +607,8 @@ void GameSettingsScreen::CreateViews() {
 
 #if defined(USING_WIN_UI)
 	systemSettings->Add(new CheckBox(&g_Config.bBypassOSKWithKeyboard, sy->T("Enable Windows native keyboard", "Enable Windows native keyboard")));
+#elif defined(ANDROID)
+	systemSettings->Add(new CheckBox(&g_Config.bBypassOSKWithKeyboard, sy->T("Enable Android native keyboard", "Enable Android native keyboard")));
 #endif
 #if defined(_WIN32)
 	SavePathInMyDocumentChoice = systemSettings->Add(new CheckBox(&installed_, sy->T("Save path in My Documents", "Save path in My Documents")));

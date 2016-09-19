@@ -21,7 +21,9 @@
 #include <map>
 #include <vector>
 
-#include "CommonTypes.h"
+#include "Common/CommonTypes.h"
+
+#include "Common/sem.h"
 
 #if !defined(USING_QT_UI)
 extern const char *PPSSPP_GIT_VERSION;
@@ -400,8 +402,15 @@ public:
 	int iPSPModel;
 	int iFirmwareVersion;
 	// TODO: Make this work with your platform, too!
-#if defined(USING_WIN_UI)
+#if defined(USING_WIN_UI) || defined(ANDROID)
 	bool bBypassOSKWithKeyboard;
+#endif
+
+// ANDROID OSK
+#ifdef ANDROID
+	//bool bOSKlock = false;
+	static sem_t semOSKlock;
+	std::string sOSKName = "";;
 #endif
 
 	// Debugger

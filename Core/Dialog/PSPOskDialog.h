@@ -22,7 +22,7 @@
 #include "Core/Dialog/PSPDialog.h"
 #include "Core/MemMap.h"
 #include "Common/CommonTypes.h"
-
+#include "Common/sem.h"
 
 /**
 * Enumeration for input language
@@ -222,7 +222,7 @@ private:
 	void ConvertUCS2ToUTF8(std::string& _string, const PSPPointer<u16_le>& em_address);
 	void ConvertUCS2ToUTF8(std::string& _string, const wchar_t *input);
 	void RenderKeyboard();
-#if defined(USING_WIN_UI)
+#if defined(USING_WIN_UI) || defined(ANDROID)
 	int NativeKeyboard();
 #endif
 
