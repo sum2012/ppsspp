@@ -21,9 +21,11 @@
 #include <map>
 #include <vector>
 
-#include "Common/CommonTypes.h"
+#include "CommonTypes.h"
 
-#include "Common/sem.h"
+#if defined(ANDROID)
+#include "ext/native/base/mutex.h"
+#endif
 
 #if !defined(USING_QT_UI)
 extern const char *PPSSPP_GIT_VERSION;
@@ -405,11 +407,9 @@ public:
 #if defined(USING_WIN_UI) || defined(ANDROID)
 	bool bBypassOSKWithKeyboard;
 #endif
-
-// ANDROID OSK
+	// ANDROID OSK
 #ifdef ANDROID
-	//bool bOSKlock = false;
-	static sem_t semOSKlock;
+	static recursive_mutex OSKlock;
 	std::string sOSKName = "";;
 #endif
 

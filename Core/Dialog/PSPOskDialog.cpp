@@ -38,6 +38,10 @@
 #include <math.h>
 #endif
 
+#if defined(ANDROID)
+#include "ext/native/base/mutex.h"
+#endif
+
 // These are rough, it seems to take a long time to init, and probably depends on threads.
 // TODO: This takes like 700ms on a PSP but that's annoyingly long.
 const static int OSK_INIT_DELAY_US = 300000;
@@ -794,6 +798,7 @@ int PSPOskDialog::NativeKeyboard() {
 	if (GetStatus() != SCE_UTILITY_STATUS_RUNNING) {
 		return SCE_ERROR_UTILITY_INVALID_STATUS;
 	}
+
 #if defined(USING_WIN_UI)
 	std::wstring titleText;
 	GetWideStringFromPSPPointer(titleText, oskParams->fields[0].desc);
@@ -804,24 +809,23 @@ int PSPOskDialog::NativeKeyboard() {
 	if (defaultText.empty())
 		defaultText.assign(L"VALUE");
 
-		if (System_InputBoxGetWString(titleText.c_str(), defaultText, inputChars)) {
+	if (System_InputBoxGetWString(titleText.c_str(), defaultText, inputChars)) {
 		u32 maxLength = FieldMaxLength();
 		if (inputChars.length() > maxLength) {
 			ERROR_LOG(SCEUTILITY, "NativeKeyboard: input text too long(%d characters/glyphs max), truncating to game-requested length.", maxLength);
 			inputChars.erase(maxLength, std::string::npos);
 		}
-	}	
+	}
 #elif defined(ANDROID)
 	System_SendMessage("inputbox", ("oskname:" + g_Config.sOSKName).c_str());
-	sem_init(&g_Config.semOSKlock, 0, 0);
-	sem_post(&g_Config.semOSKlock);
+	lock_guard lock(g_Config.OSKlock);
+	g_Config.OSKlock.lock();
 	inputChars.assign(g_Config.sOSKName.begin(), g_Config.sOSKName.end());
 	u32 maxLength = FieldMaxLength();
 	if (inputChars.length() > maxLength) {
 		ERROR_LOG(SCEUTILITY, "NativeKeyboard: input text too long(%d characters/glyphs max), truncating to game-requested length.", maxLength);
 		inputChars.erase(maxLength, std::string::npos);
 	}
-}
 #endif
 	ChangeStatus(SCE_UTILITY_STATUS_FINISHED, 0);
 	
@@ -870,7 +874,6 @@ int PSPOskDialog::Update(int animSpeed) {
 #if defined(USING_WIN_UI) || defined(ANDROID)
 	// Windows: Fall back to the OSK/continue normally if we're in fullscreen.
 	// The dialog box doesn't work right if in fullscreen.
-
 	#if defined(USING_WIN_UI)
 	if(g_Config.bBypassOSKWithKeyboard && !g_Config.bFullScreen)
 		return NativeKeyboard();
@@ -878,7 +881,6 @@ int PSPOskDialog::Update(int animSpeed) {
 	if (g_Config.bBypassOSKWithKeyboard)
 		return NativeKeyboard();
 	#endif
-
 #endif
 
 	UpdateFade(animSpeed);

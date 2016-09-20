@@ -93,8 +93,6 @@
 #include "Common/KeyMap.h"
 #endif
 
-#include "Common/sem.h"
-
 #ifdef __SYMBIAN32__
 #define unique_ptr auto_ptr
 #endif
@@ -779,10 +777,10 @@ void HandleGlobalMessage(const std::string &msg, const std::string &value) {
 #ifdef ANDROID
 		if (inputboxValue[0] == "oskname") {
 			g_Config.sOSKName = inputboxValue[1];
-		sem_post(&g_Config.semOSKlock);
-	}
+			g_Config.OSKlock.unlock();
+		}
 #endif
-	inputboxValue.clear();
+		inputboxValue.clear();
 	}
 	if (msg == "savestate_displayslot") {
 		I18NCategory *sy = GetI18NCategory("System");
