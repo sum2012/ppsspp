@@ -162,7 +162,7 @@ static int Replace_memcpy_jak() {
 	if (Memory::IsVRAMAddress(destPtr) || Memory::IsVRAMAddress(srcPtr)) {
 		skip = gpu->PerformMemoryCopy(destPtr, srcPtr, bytes);
 	}
-	if (!skip && bytes != 0) {
+	if (!skip && bytes != 0 && Memory::IsValidAddress(destPtr) && Memory::IsValidAddress(srcPtr)) {
 		u8 *dst = Memory::GetPointer(destPtr);
 		const u8 *src = Memory::GetPointer(srcPtr);
 
