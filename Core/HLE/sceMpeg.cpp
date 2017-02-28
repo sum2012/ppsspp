@@ -582,7 +582,7 @@ static int sceMpegAvcDecodeMode(u32 mpeg, u32 modeAddr)
 	} else {
 		ERROR_LOG(ME, "sceMpegAvcDecodeMode(%i, %i): unknown pixelMode ", mode, pixelMode);
 	}
-	return 0;
+	return hleDelayResult(0, "sceMpegAvcDecodeMode", 300);
 }
 
 static int sceMpegQueryStreamOffset(u32 mpeg, u32 bufferAddr, u32 offsetAddr)
@@ -901,8 +901,6 @@ static H264Frames *pmpframes;
 
 // decode pmp video to RGBA format
 static bool decodePmpVideo(PSPPointer<SceMpegRingBuffer> ringbuffer, u32 pmpctxAddr){
-
-#ifdef USE_FFMPEG
 	// the current video is pmp iff pmp_videoSource is a valid addresse
 	MpegContext* ctx = getMpegCtx(pmpctxAddr);
 	if (Memory::IsValidAddress(pmp_videoSource)){
@@ -1016,9 +1014,6 @@ static bool decodePmpVideo(PSPPointer<SceMpegRingBuffer> ringbuffer, u32 pmpctxA
 	}
 	// not a pmp video, return false
 	return false;
-#else
-	return false;
-#endif
 }
 
 
@@ -1103,7 +1098,6 @@ static u32 sceMpegAvcDecode(u32 mpeg, u32 auAddr, u32 frameWidth, u32 bufferAddr
 	ctx->mediaengine->setVideoStream(avcAu.esBuffer);
 
 	if (ispmp){
-#ifdef USE_FFMPEG
 		while (pmp_queue.size() != 0){
 			// playing all pmp_queue frames
 			ctx->mediaengine->m_pFrameRGB = pmp_queue.front();
@@ -1116,7 +1110,6 @@ static u32 sceMpegAvcDecode(u32 mpeg, u32 auAddr, u32 frameWidth, u32 bufferAddr
 			hleDelayResult(0, "pmp video decode", 30);
 			pmp_queue.pop_front();
 		}
-#endif
 	}
 	else if(ctx->mediaengine->stepVideo(ctx->videoPixelMode)) {
 		int bufferSize = ctx->mediaengine->writeVideoImage(buffer, frameWidth, ctx->videoPixelMode);
@@ -1145,12 +1138,14 @@ static u32 sceMpegAvcDecode(u32 mpeg, u32 auAddr, u32 frameWidth, u32 bufferAddr
 	ctx->avc.avcDecodeResult = MPEG_AVC_DECODE_SUCCESS;
 
 	DEBUG_LOG(ME, "sceMpegAvcDecode(%08x, %08x, %i, %08x, %08x)", mpeg, auAddr, frameWidth, bufferAddr, initAddr);
-
+	return hleDelayResult(0, "mpeg decode", 300);
+	/*
 	if (ctx->videoFrameCount <= 1)
 		return hleDelayResult(0, "mpeg decode", avcFirstDelayMs);
 	else
 		return hleDelayResult(0, "mpeg decode", avcDecodeDelayMs);
 	//hleEatMicro(3300);
+	*/
 	//return hleDelayResult(0, "mpeg decode", 200);
 }
 
@@ -1312,11 +1307,13 @@ static int sceMpegAvcDecodeYCbCr(u32 mpeg, u32 auAddr, u32 bufferAddr, u32 initA
 	ctx->avc.avcDecodeResult = MPEG_AVC_DECODE_SUCCESS;
 
 	DEBUG_LOG(ME, "sceMpegAvcDecodeYCbCr(%08x, %08x, %08x, %08x)", mpeg, auAddr, bufferAddr, initAddr);
-
+	/*
 	if (ctx->videoFrameCount <= 1)
 		return hleDelayResult(0, "mpeg decode", avcFirstDelayMs);
 	else
 		return hleDelayResult(0, "mpeg decode", avcDecodeDelayMs);
+	*/
+	return hleDelayResult(0, "mpeg decode", 300);
 	//hleEatMicro(3300);
 	//return hleDelayResult(0, "mpeg decode", 200);
 }
@@ -1907,7 +1904,8 @@ static u32 sceMpegAtracDecode(u32 mpeg, u32 auAddr, u32 bufferAddr, int init)
 	atracAu.write(auAddr);
 
 
-	return hleDelayResult(0, "mpeg atrac decode", atracDecodeDelayMs);
+	//return hleDelayResult(0, "mpeg atrac decode", atracDecodeDelayMs);
+	return hleDelayResult(0, "mpeg atrac decode", 300);
 	//hleEatMicro(4000);
 	//return hleDelayResult(0, "mpeg atrac decode", 200);
 }
@@ -1966,7 +1964,7 @@ static u32 sceMpegAvcInitYCbCr(u32 mpeg, int mode, int width, int height, u32 yc
 	}
 
 	ERROR_LOG(ME, "UNIMPL sceMpegAvcInitYCbCr(%08x, %i, %i, %i, %08x)", mpeg, mode, width, height, ycbcr_addr);
-	return 0;
+	return hleDelayResult(0, "sceMpegAvcInitYCbCr", 300);
 }
 
 static int sceMpegAvcQueryYCbCrSize(u32 mpeg, u32 mode, u32 width, u32 height, u32 resultAddr)
@@ -1980,7 +1978,7 @@ static int sceMpegAvcQueryYCbCrSize(u32 mpeg, u32 mode, u32 width, u32 height, u
 
 	int size = (width / 2) * (height / 2) * 6 + 128;
 	Memory::Write_U32(size, resultAddr);
-	return 0;
+	return hleDelayResult(0, "sceMpegAvcQueryYCbCrSize", 300);
 }
 
 static u32 sceMpegQueryUserdataEsSize(u32 mpeg, u32 esSizeAddr, u32 outSizeAddr)
