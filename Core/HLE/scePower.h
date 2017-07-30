@@ -24,3 +24,6 @@ void __PowerDoState(PointerWrap &p);
 
 void Register_scePower();
 void Register_sceSuspendForUser();
+
+int __KernelVolatileMemLock(int type, u32 paddr, u32 psize, bool trylock);
+int sceKernelVolatileMemUnlock(int type);

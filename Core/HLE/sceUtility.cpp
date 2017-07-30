@@ -30,6 +30,7 @@
 #include "Core/HLE/sceKernel.h"
 #include "Core/HLE/sceKernelMemory.h"
 #include "Core/HLE/sceKernelThread.h"
+#include "Core/HLE/scePower.h"
 #include "Core/HLE/sceUtility.h"
 
 #include "Core/HLE/sceCtrl.h"
@@ -70,6 +71,13 @@ static const int httpStorageModuleDeps[] = {0x00100, 0x0102, 0x0103, 0x0104, 0x0
 static const int atrac3PlusModuleDeps[] = {0x0300, 0};
 static const int mpegBaseModuleDeps[] = {0x0300, 0};
 static const int mp4ModuleDeps[] = {0x0300, 0};
+
+// Volatile mem is always at 0x08400000
+
+int KERNEL_VOLATILE_MEM_START = 0x08400000;
+// Volatile mem size is 4Megs
+static const int KERNEL_VOLATILE_MEM_SIZE = 0x400000;
+
 
 struct ModuleLoadInfo {
 	ModuleLoadInfo(int m, u32 s) : mod(m), size(s), dependencies(noDeps) {
@@ -188,6 +196,10 @@ static int sceUtilitySavedataInitStart(u32 paramAddr)
 		WARN_LOG(SCEUTILITY, "sceUtilitySavedataInitStart(%08x): wrong dialog type", paramAddr);
 		return SCE_ERROR_UTILITY_WRONG_TYPE;
 	}
+	int lockResult = __KernelVolatileMemLock(0, KERNEL_VOLATILE_MEM_START, KERNEL_VOLATILE_MEM_SIZE, false);
+	if (lockResult < 0) {
+		return lockResult;
+	}
 
 	oldStatus = 100;
 	currentDialogType = UTILITY_DIALOG_SAVEDATA;
@@ -204,7 +216,16 @@ static int sceUtilitySavedataShutdownStart()
 		WARN_LOG(SCEUTILITY, "sceUtilitySavedataShutdownStart(): wrong dialog type");
 		return SCE_ERROR_UTILITY_WRONG_TYPE;
 	}
-	
+	int unlockResult = sceKernelVolatileMemUnlock(0);
+	if (unlockResult < 0) {
+		ERROR_LOG(SCEUTILITY, "shutdown thread cannot unlock the volatile mem 0x%08X", unlockResult);
+
+	}
+	else {
+		// The volatile memory is cleared after its use	
+		memset(&KERNEL_VOLATILE_MEM_START, 0, KERNEL_VOLATILE_MEM_SIZE);
+		
+	}
 	currentDialogActive = false;
 	int ret = saveDialog.Shutdown();
 	DEBUG_LOG(SCEUTILITY,"%08x=sceUtilitySavedataShutdownStart()",ret);
@@ -334,7 +355,11 @@ static int sceUtilityMsgDialogInitStart(u32 paramAddr)
 		WARN_LOG(SCEUTILITY, "sceUtilityMsgDialogInitStart(%08x): wrong dialog type", paramAddr);
 		return SCE_ERROR_UTILITY_WRONG_TYPE;
 	}
-	
+	int lockResult = __KernelVolatileMemLock(0, KERNEL_VOLATILE_MEM_START, KERNEL_VOLATILE_MEM_SIZE, false);
+	if (lockResult < 0) {
+		return lockResult;
+	}
+
 	oldStatus = 100;
 	currentDialogType = UTILITY_DIALOG_MSG;
 	currentDialogActive = true;
@@ -350,7 +375,17 @@ static int sceUtilityMsgDialogShutdownStart()
 		WARN_LOG(SCEUTILITY, "sceUtilityMsgDialogShutdownStart(): wrong dialog type");
 		return SCE_ERROR_UTILITY_WRONG_TYPE;
 	}
-	
+	int unlockResult = sceKernelVolatileMemUnlock(0);
+	if (unlockResult < 0) {
+		ERROR_LOG(SCEUTILITY, "shutdown thread cannot unlock the volatile mem 0x%08X", unlockResult);
+
+	}
+	else {
+		// The volatile memory is cleared after its use	
+		memset(&KERNEL_VOLATILE_MEM_START, 0, KERNEL_VOLATILE_MEM_SIZE);
+
+	}
+
 	currentDialogActive = false;
 	int ret = msgDialog.Shutdown();
 	DEBUG_LOG(SCEUTILITY, "%08x=sceUtilityMsgDialogShutdownStart()", ret);
@@ -410,7 +445,11 @@ static int sceUtilityOskInitStart(u32 oskPtr)
 		WARN_LOG(SCEUTILITY, "sceUtilityOskInitStart(%08x): wrong dialog type", oskPtr);
 		return SCE_ERROR_UTILITY_WRONG_TYPE;
 	}
-	
+	int lockResult = __KernelVolatileMemLock(0, KERNEL_VOLATILE_MEM_START, KERNEL_VOLATILE_MEM_SIZE, false);
+	if (lockResult < 0) {
+		return lockResult;
+	}
+
 	oldStatus = 100;
 	currentDialogType = UTILITY_DIALOG_OSK;
 	currentDialogActive = true;
@@ -426,7 +465,18 @@ static int sceUtilityOskShutdownStart()
 		WARN_LOG(SCEUTILITY, "sceUtilityOskShutdownStart(): wrong dialog type");
 		return SCE_ERROR_UTILITY_WRONG_TYPE;
 	}
-	
+	int unlockResult = sceKernelVolatileMemUnlock(0);
+	if (unlockResult < 0) {
+		ERROR_LOG(SCEUTILITY, "shutdown thread cannot unlock the volatile mem 0x%08X", unlockResult);
+		//return unlockResult;
+
+	}
+	else {
+		// The volatile memory is cleared after its use	
+		memset(&KERNEL_VOLATILE_MEM_START, 0, KERNEL_VOLATILE_MEM_SIZE);
+
+	}
+
 	currentDialogActive = false;
 	int ret = oskDialog.Shutdown();
 	DEBUG_LOG(SCEUTILITY, "%08x=sceUtilityOskShutdownStart()",ret);

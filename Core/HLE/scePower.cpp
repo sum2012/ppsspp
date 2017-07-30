@@ -233,11 +233,11 @@ static int sceKernelPowerTick(int flag) {
 	return 0;
 }
 
-static int __KernelVolatileMemLock(int type, u32 paddr, u32 psize) {
+int __KernelVolatileMemLock(int type, u32 paddr, u32 psize,bool trylock) {
 	if (type != 0) {
 		return SCE_KERNEL_ERROR_INVALID_MODE;
 	}
-	if (volatileMemLocked) {
+	if (trylock & volatileMemLocked) {
 		return SCE_KERNEL_ERROR_POWER_VMEM_IN_USE;
 	}
 
@@ -250,13 +250,15 @@ static int __KernelVolatileMemLock(int type, u32 paddr, u32 psize) {
 	if (Memory::IsValidAddress(psize)) {
 		Memory::Write_U32(0x00400000, psize);
 	}
-	volatileMemLocked = true;
+
+	//if (trylock)
+		volatileMemLocked = true;
 
 	return 0;
 }
 
 static int sceKernelVolatileMemTryLock(int type, u32 paddr, u32 psize) {
-	u32 error = __KernelVolatileMemLock(type, paddr, psize);
+	u32 error = __KernelVolatileMemLock(type, paddr, psize, true);
 
 	switch (error) {
 	case 0:
@@ -264,7 +266,8 @@ static int sceKernelVolatileMemTryLock(int type, u32 paddr, u32 psize) {
 		// Should only wait 1200 cycles though according to Unknown's testing,
 		// and with that it's still broken. So it's not this, unfortunately.
 		// Leaving it in for the 0.9.8 release anyway.
-		hleEatCycles(500000);
+		//hleEatCycles(500000);
+		hleEatCycles(1200);
 		DEBUG_LOG(HLE, "sceKernelVolatileMemTryLock(%i, %08x, %08x) - success", type, paddr, psize);
 		break;
 
@@ -280,7 +283,7 @@ static int sceKernelVolatileMemTryLock(int type, u32 paddr, u32 psize) {
 	return error;
 }
 
-static int sceKernelVolatileMemUnlock(int type) {
+int sceKernelVolatileMemUnlock(int type) {
 	if (type != 0) {
 		ERROR_LOG_REPORT(HLE, "sceKernelVolatileMemUnlock(%i) - invalid mode", type);
 		return SCE_KERNEL_ERROR_INVALID_MODE;
@@ -297,7 +300,7 @@ static int sceKernelVolatileMemUnlock(int type) {
 
 			int waitID = __KernelGetWaitID(waitInfo.threadID, WAITTYPE_VMEM, error);
 			// If they were force-released, just skip.
-			if (waitID == 1 && __KernelVolatileMemLock(0, waitInfo.addrPtr, waitInfo.sizePtr) == 0) {
+			if (waitID == 1 && __KernelVolatileMemLock(0, waitInfo.addrPtr, waitInfo.sizePtr, true) == 0) {
 				__KernelResumeThreadFromWait(waitInfo.threadID, 0);
 				wokeThreads = true;
 			}
@@ -317,7 +320,7 @@ static int sceKernelVolatileMemUnlock(int type) {
 	return 0;
 }
 
-static int sceKernelVolatileMemLock(int type, u32 paddr, u32 psize) {
+int sceKernelVolatileMemLock(int type, u32 paddr, u32 psize) {
 	u32 error = 0;
 
 	// If dispatch is disabled or in an interrupt, don't check, just return an error.
@@ -327,7 +330,7 @@ static int sceKernelVolatileMemLock(int type, u32 paddr, u32 psize) {
 	} else if (__IsInInterrupt()) {
 		error = SCE_KERNEL_ERROR_ILLEGAL_CONTEXT;
 	} else {
-		error = __KernelVolatileMemLock(type, paddr, psize);
+		error = __KernelVolatileMemLock(type, paddr, psize, true);
 	}
 
 	switch (error) {
