@@ -60,7 +60,7 @@ public:
 	bool loadStream(const u8 *buffer, int readSize, int RingbufferSize);
 	bool reloadStream();
 	// open the mpeg context
-	bool openContext(bool keepReadPos = false);
+	bool openContext();
 	void closeContext();
 
 	// Returns number of packets actually added. I guess the buffer might be full.
@@ -81,6 +81,7 @@ public:
 	                             int xpos, int ypos, int width, int height);
 	int getAudioSamples(u32 bufferPtr);
 
+	bool setVideoDim(int width = 0, int height = 0);
 	s64 getVideoTimeStamp();
 	s64 getAudioTimeStamp();
 	s64 getLastTimeStamp();
@@ -92,9 +93,7 @@ public:
 
 	void DoState(PointerWrap &p);
 
-private:
-	bool SetupStreams();
-	bool setVideoDim(int width = 0, int height = 0);
+private:	
 	void updateSwsFormat(int videoPixelMode);
 	int getNextAudioFrame(u8 **buf, int *headerCode1, int *headerCode2);
 

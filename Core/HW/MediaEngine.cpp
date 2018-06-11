@@ -213,7 +213,7 @@ void MediaEngine::DoState(PointerWrap &p) {
 	}
 
 	if (hasopencontext && p.mode == p.MODE_READ) {
-		openContext(true);
+		openContext();
 	}
 
 	p.Do(m_isVideoEnd);
@@ -234,6 +234,8 @@ static int MpegReadbuffer(void *opaque, uint8_t *buf, int buf_size) {
 		size = std::min(buf_size, mpeg->m_mpegheaderSize - mpeg->m_mpegheaderReadPos);
 		memcpy(buf, mpeg->m_mpegheader + mpeg->m_mpegheaderReadPos, size);
 		mpeg->m_mpegheaderReadPos += size;
+	} else if (mpeg->m_mpegheaderReadPos == mpeg->m_mpegheaderSize) {
+		return 0;
 	} else {
 		size = mpeg->m_pdata->pop_front(buf, buf_size);
 		if (size > 0)
@@ -242,73 +244,33 @@ static int MpegReadbuffer(void *opaque, uint8_t *buf, int buf_size) {
 	return size;
 }
 
-bool MediaEngine::SetupStreams() {
-#ifdef USE_FFMPEG
-	const u32 magic = *(u32_le *)&m_mpegheader[0];
-	if (magic != PSMF_MAGIC) {
-		WARN_LOG_REPORT(ME, "Could not setup streams, bad magic: %08x", magic);
-		return false;
-	}
-	int numStreams = *(u16_be *)&m_mpegheader[0x80];
-	if (numStreams <= 0 || numStreams > 8) {
-		// Looks crazy.  Let's bail out and let FFmpeg handle it.
-		WARN_LOG_REPORT(ME, "Could not setup streams, unexpected stream count: %d", numStreams);
-		return false;
-	}
-
-	// Looking good.  Let's add those streams.
-	const AVCodec *h264_codec = avcodec_find_decoder(AV_CODEC_ID_H264);
-	for (int i = 0; i < numStreams; i++) {
-		const u8 *const currentStreamAddr = m_mpegheader + 0x82 + i * 16;
-		int streamId = currentStreamAddr[0];
-
-		// We only set video streams.  We demux the audio stream separately.
-		if ((streamId & PSMF_VIDEO_STREAM_ID) == PSMF_VIDEO_STREAM_ID) {
-			AVStream *stream = avformat_new_stream(m_pFormatCtx, h264_codec);
-			stream->id = 0x00000100 | streamId;
-			stream->request_probe = 0;
-			stream->need_parsing = AVSTREAM_PARSE_FULL;
-			// We could set the width here, but we don't need to.
-		}
-	}
-
-#endif
-	return true;
-}
-
-bool MediaEngine::openContext(bool keepReadPos) {
+bool MediaEngine::openContext() {
 #ifdef USE_FFMPEG
 	InitFFmpeg();
 
 	if (m_pFormatCtx || !m_pdata)
 		return false;
-	if (!keepReadPos) {
-		m_mpegheaderReadPos = 0;
-	}
+	m_mpegheaderReadPos = 0;
 	m_decodingsize = 0;
 
-	m_bufSize = std::max(m_bufSize, m_mpegheaderSize);
 	u8 *tempbuf = (u8*)av_malloc(m_bufSize);
 
 	m_pFormatCtx = avformat_alloc_context();
-	m_pIOContext = avio_alloc_context(tempbuf, m_bufSize, 0, (void*)this, &MpegReadbuffer, nullptr, nullptr);
+	m_pIOContext = avio_alloc_context(tempbuf, m_bufSize, 0, (void*)this, MpegReadbuffer, NULL, 0);
 	m_pFormatCtx->pb = m_pIOContext;
 
 	// Open video file
     AVDictionary *open_opt = nullptr;
     av_dict_set_int(&open_opt, "probesize", m_mpegheaderSize, 0);
-	if (avformat_open_input((AVFormatContext**)&m_pFormatCtx, nullptr, nullptr, &open_opt) != 0) {
+	if (avformat_open_input((AVFormatContext**)&m_pFormatCtx, NULL, NULL, &open_opt) != 0) {
 		av_dict_free(&open_opt);
 		return false;
 	}
 	av_dict_free(&open_opt);
 
-	if (!SetupStreams()) {
-		// Fallback to old behavior.
-		if (avformat_find_stream_info(m_pFormatCtx, NULL) < 0) {
-			closeContext();
-			return false;
-		}
+	if (avformat_find_stream_info(m_pFormatCtx, NULL) < 0) {
+		closeContext();
+		return false;
 	}
 
 	if (m_videoStream >= (int)m_pFormatCtx->nb_streams) {
@@ -334,6 +296,8 @@ bool MediaEngine::openContext(bool keepReadPos) {
 	setVideoDim();
 	m_audioContext = new SimpleAudio(m_audioType, 44100, 2);
 	m_isVideoEnd = false;
+	m_mpegheaderReadPos++;
+	av_seek_frame(m_pFormatCtx, m_videoStream, 0, 0);
 #endif // USE_FFMPEG
 	return true;
 }
@@ -396,7 +360,8 @@ int MediaEngine::addStreamData(const u8 *buffer, int addSize) {
 #ifdef USE_FFMPEG
 		if (!m_pFormatCtx && m_pdata->getQueueSize() >= 2048) {
 			m_mpegheaderSize = m_pdata->get_front(m_mpegheader, sizeof(m_mpegheader));
-			m_pdata->pop_front(0, m_mpegheaderSize);
+			int mpegoffset = (int)(*(s32_be*)(m_mpegheader + 8));
+			m_pdata->pop_front(0, mpegoffset);
 			openContext();
 		}
 #endif // USE_FFMPEG
@@ -459,7 +424,8 @@ bool MediaEngine::setVideoStream(int streamNum, bool force) {
 		}
 
 		// Open codec
-		if (avcodec_open2(m_pCodecCtx, pCodec, nullptr) < 0) {
+		AVDictionary *optionsDict = 0;
+		if (avcodec_open2(m_pCodecCtx, pCodec, &optionsDict) < 0) {
 			return false; // Could not open codec
 		}
 		m_pCodecCtxs[streamNum] = m_pCodecCtx;
@@ -491,18 +457,11 @@ bool MediaEngine::setVideoDim(int width, int height)
 	}
 
 	// Allocate video frame
-	if (!m_pFrame) {
-		m_pFrame = av_frame_alloc();
-	}
+	m_pFrame = av_frame_alloc();
 
 	sws_freeContext(m_sws_ctx);
 	m_sws_ctx = NULL;
 	m_sws_fmt = -1;
-
-	if (m_desWidth == 0 || m_desHeight == 0) {
-		// Can't setup SWS yet, so stop for now.
-		return false;
-	}
 
 	updateSwsFormat(GE_CMODE_32BIT_ABGR8888);
 
@@ -571,8 +530,13 @@ bool MediaEngine::stepVideo(int videoPixelMode, bool skipFrame) {
 		return false;
 	if (!m_pCodecCtx)
 		return false;
-	if (!m_pFrame)
+	if ((!m_pFrame) || (!m_pFrameRGB))
 		return false;
+
+	updateSwsFormat(videoPixelMode);
+	// TODO: Technically we could set this to frameWidth instead of m_desWidth for better perf.
+	// Update the linesize for the new format too.  We started with the largest size, so it should fit.
+	m_pFrameRGB->linesize[0] = getPixelFormatBytes(videoPixelMode) * m_desWidth;
 
 	AVPacket packet;
 	av_init_packet(&packet);
@@ -594,15 +558,7 @@ bool MediaEngine::stepVideo(int videoPixelMode, bool skipFrame) {
 
 			int result = avcodec_decode_video2(m_pCodecCtx, m_pFrame, &frameFinished, &packet);
 			if (frameFinished) {
-				if (!m_pFrameRGB) {
-					setVideoDim();
-				}
-				if (m_pFrameRGB && !skipFrame) {
-					updateSwsFormat(videoPixelMode);
-					// TODO: Technically we could set this to frameWidth instead of m_desWidth for better perf.
-					// Update the linesize for the new format too.  We started with the largest size, so it should fit.
-					m_pFrameRGB->linesize[0] = getPixelFormatBytes(videoPixelMode) * m_desWidth;
-
+				if (!skipFrame) {
 					sws_scale(m_sws_ctx, m_pFrame->data, m_pFrame->linesize, 0,
 						m_pCodecCtx->height, m_pFrameRGB->data, m_pFrameRGB->linesize);
 				}

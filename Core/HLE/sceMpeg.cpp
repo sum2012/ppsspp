@@ -337,6 +337,7 @@ static void AnalyzeMpeg(u8 *buffer, MpegContext *ctx) {
 			// TODO: Does this make any sense?
 			ctx->mediaengine->loadStream(buffer, ctx->mpegOffset, 0);
 		}
+		ctx->mediaengine->setVideoDim();
 	}
 	
 	// When used with scePsmf, some applications attempt to use sceMpegQueryStreamOffset
