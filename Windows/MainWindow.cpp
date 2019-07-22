@@ -674,27 +674,6 @@ namespace MainWindow
 			}
 			break;
 
-		case WM_MOUSEWHEEL:
-		{
-			int wheelDelta = (short)(wParam >> 16);
-			KeyInput key;
-			key.deviceId = DEVICE_ID_MOUSE;
-
-			if (wheelDelta < 0) {
-				key.keyCode = NKCODE_EXT_MOUSEWHEEL_DOWN;
-				wheelDelta = -wheelDelta;
-			} else {
-				key.keyCode = NKCODE_EXT_MOUSEWHEEL_UP;
-			}
-			// There's no separate keyup event for mousewheel events,
-			// so we set mouseScrollUsed here and always release if it's true.
-			key.flags = KEY_DOWN | KEY_HASWHEELDELTA | (wheelDelta << 16);
-			mouseScrollUsed = true;
-			SetTimer(hwndMain, TIMER_WHEELRELEASE, WHEELRELEASE_DELAY_MS, 0);
-			NativeKey(key);
-		}
-		break;
-
 		case WM_TOUCH:
 			{
 				touchHandler.handleTouchEvent(hWnd, message, wParam, lParam);
@@ -806,6 +785,29 @@ namespace MainWindow
 				break;
 			}
 			break;
+
+		// Wheel events have to stay in WndProc for compatibility with older Windows. See #12156
+		case WM_MOUSEWHEEL:
+		{
+			int wheelDelta = (short)(wParam >> 16);
+			KeyInput key;
+			key.deviceId = DEVICE_ID_MOUSE;
+
+			if (wheelDelta < 0) {
+				key.keyCode = NKCODE_EXT_MOUSEWHEEL_DOWN;
+				wheelDelta = -wheelDelta;
+			}
+			else {
+				key.keyCode = NKCODE_EXT_MOUSEWHEEL_UP;
+			}
+			// There's no separate keyup event for mousewheel events,
+			// so we set mouseScrollUsed here and always release if it's true.
+			key.flags = KEY_DOWN | KEY_HASWHEELDELTA | (wheelDelta << 16);
+			mouseScrollUsed = true;
+			SetTimer(hwndMain, TIMER_WHEELRELEASE, WHEELRELEASE_DELAY_MS, 0);
+			NativeKey(key);
+		}
+		break;
 
 		case WM_TIMER:
 			// Hack: Take the opportunity to also show/hide the mouse cursor in fullscreen mode.
