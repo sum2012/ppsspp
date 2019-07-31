@@ -132,7 +132,6 @@ namespace MainWindow
 	// gross hack
 	bool noFocusPause = false;	// TOGGLE_PAUSE state to override pause on lost focus
 	bool trapMouse = true; // Handles some special cases(alt+tab, win menu) when game is running and mouse is confined
-	bool mouseScrollUsed = false;
 
 #define MAX_LOADSTRING 100
 	const TCHAR *szWindowClass = TEXT("PPSSPPWnd");
@@ -260,17 +259,14 @@ namespace MainWindow
 	}
 
 	void RelaseMouseWheel() {
-		if (mouseScrollUsed) {
-			// For simplicity release both wheel events
-			KeyInput key;
-			key.deviceId = DEVICE_ID_MOUSE;
-			key.flags = KEY_UP;
-			key.keyCode = NKCODE_EXT_MOUSEWHEEL_DOWN;
-			NativeKey(key);
-			key.keyCode = NKCODE_EXT_MOUSEWHEEL_UP;
-			NativeKey(key);
-			mouseScrollUsed = false;
-		}
+		// For simplicity release both wheel events
+		KeyInput key;
+		key.deviceId = DEVICE_ID_MOUSE;
+		key.flags = KEY_UP;
+		key.keyCode = NKCODE_EXT_MOUSEWHEEL_DOWN;
+		NativeKey(key);
+		key.keyCode = NKCODE_EXT_MOUSEWHEEL_UP;
+		NativeKey(key);
 	}
 
 	static void HandleSizeChange(int newSizingType) {
@@ -687,10 +683,13 @@ namespace MainWindow
 				key.keyCode = NKCODE_EXT_MOUSEWHEEL_UP;
 			}
 			// There's no separate keyup event for mousewheel events,
-			// so we set mouseScrollUsed here and always release if it's true.
-			key.flags = KEY_DOWN | KEY_HASWHEELDELTA | (wheelDelta << 16);
-			mouseScrollUsed = true;
-			SetTimer(hwndMain, TIMER_WHEELRELEASE, WHEELRELEASE_DELAY_MS, 0);
+			// so for in-game we release wheel with a timer.
+			if (GetUIState() == UISTATE_INGAME) {
+				key.flags = KEY_DOWN | KEY_HASWHEELDELTA | (wheelDelta << 16);
+				SetTimer(hwndMain, TIMER_WHEELRELEASE, WHEELRELEASE_DELAY_MS, 0);
+			} else // for UI we instantly release it as a workaround for Windows 7 problems.
+				key.flags = KEY_DOWN | KEY_UP | KEY_HASWHEELDELTA | (wheelDelta << 16);
+			
 			NativeKey(key);
 		}
 		break;
