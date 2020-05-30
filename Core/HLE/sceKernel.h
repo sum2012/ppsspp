@@ -464,11 +464,11 @@ public:
 			// it just acted as a static case and everything worked. This means that we will never
 			// see the Wrong type object error below, but we'll just have to live with that danger.
 			T* t = static_cast<T*>(pool[handle - handleOffset]);
-			if (t == 0 || t->GetIDType() != T::GetStaticIDType()) {
-				WARN_LOG(SCEKERNEL, "Kernel: Wrong object type for %i (%08x)", handle, handle);
-				outError = T::GetMissingErrorCode();
-				return 0;
-			}
+//			if (t == 0 || t->GetIDType() != T::GetStaticIDType()) {
+//				WARN_LOG(SCEKERNEL, "Kernel: Wrong object type for %i (%08x)", handle, handle);
+//				outError = T::GetMissingErrorCode();
+//				return 0;
+//			}
 			outError = SCE_KERNEL_ERROR_OK;
 			return t;
 		}
