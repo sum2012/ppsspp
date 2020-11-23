@@ -17,6 +17,7 @@
 
 #pragma once
 #include <cmath>
+#include <math.h>
 
 #include "Common/CommonTypes.h"
 #include "Core/MIPS/MIPS.h"
@@ -47,20 +48,22 @@ inline int Xpose(int v) {
 
 // Messing around with the modulo functions? try https://www.desmos.com/calculator.
 
+const u32 test = 309;
+
 inline float vfpu_sin(float angle) {
-	return (float)sin((double)angle * M_PI_2);
+	return (float)(round(pow(10, test)*(float)sin((double)angle * M_PI_2)) / pow(10, test));
 }
 
 inline float vfpu_cos(float angle) {
-	return (float)cos((double)angle * M_PI_2);
+	return (float)(round(pow(10, test) * (float)cos((double)angle * M_PI_2)) / pow(10, test));
 }
 
 inline float vfpu_asin(float angle) {
-	return asinf(angle) / M_PI_2;
+	return (float)round(pow(10, test) * asinf(angle) / M_PI_2) / pow(10, test);
 }
 
 inline void vfpu_sincos(float angle_f, float &sine, float &cosine) {
-	double angle = (double)angle_f * M_PI_2;
+	double angle = (double)(round(pow(10, test) * (double)angle_f * M_PI_2) / pow(10, test));
 #if defined(__linux__)
 	double d_sine;
 	double d_cosine;
@@ -68,8 +71,8 @@ inline void vfpu_sincos(float angle_f, float &sine, float &cosine) {
 	sine = (float)d_sine;
 	cosine = (float)d_cosine;
 #else
-	sine = (float)sin(angle);
-	cosine = (float)cos(angle);
+	sine = (float)(round(pow(10, test) * (float)sin(angle)) / pow(10, test));
+	cosine = (float)(round(pow(10, test) * (float)cos(angle)) / pow(10, test));
 #endif
 }
 
