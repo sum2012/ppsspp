@@ -34,6 +34,10 @@ inline int Xpose(int v) {
 #define M_PI_2     1.57079632679489661923
 #endif
 
+#ifndef PI
+#define PI     3.1415926535897932384
+#endif
+
 // The VFPU uses weird angles where 4.0 represents a full circle. This makes it possible to return
 // exact 1.0/-1.0 values at certain angles. We currently just scale, and special case the cardinal directions.
 //

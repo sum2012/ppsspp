@@ -904,6 +904,18 @@ float vfpu_sin_single(float angle) {
 		return 1.0f;
 	} else if (angle == 3.0f) {
 		return -1.0f;
+	} else if (angle == float(M_PI_2 / 3) || angle == float(M_PI_2 * 5 / 3)) { //30,150
+		return 0.5f;
+	} else if (angle == float(M_PI_2 / 2)|| angle == float(M_PI_2 * 3  / 2)) { //45,135
+		return float(sqrt(2)/2);
+	} else if (angle == float(PI / 3) || angle == float(PI * 2 / 3)) { //60,120
+		return float(sqrt(3) / 2);
+	} else if (angle == float(M_PI_2 * 7 / 3) || angle == float(M_PI_2 * 11 / 3)) { //210,330
+		return -0.5f;
+	} else if (angle == float(M_PI_2 * 5 / 2) || angle == float(M_PI_2 * 7 / 2)) { //225,315
+		return -float(sqrt(2) / 2);
+	} else if (angle == float(PI * 4 / 3) || angle == float(PI * 5 / 3)) { //240,300
+		return -float(sqrt(3) / 2);
 	}
 	angle *= (float)M_PI_2;
 	return sinf(angle);
@@ -917,6 +929,23 @@ float vfpu_cos_single(float angle) {
 		return 1.0f;
 	} else if (angle == 2.0f) {
 		return -1.0f;
+	} else if (angle == float(M_PI_2 / 3) || angle == float(M_PI_2 * 11 / 3)) { //30,330
+		return float(sqrt(3) / 2);
+	}
+	else if (angle == float(M_PI_2 / 2) || angle == float(M_PI_2 * 7 / 2)) { //45,315
+		return float(sqrt(2) / 2);
+	}
+	else if (angle == float(PI / 3) || angle == float(PI * 5 / 3)) { //60,300
+		return 0.5f;
+	}
+	else if (angle == float(PI * 2 / 3) || angle == float(PI * 4 / 3)) { //120,240
+		return -0.5f;
+	}
+	else if (angle == float(M_PI_2 * 3 / 2) || angle == float(M_PI_2 * 5 / 2)) { //135,225
+		return -float(sqrt(2) / 2);
+	}
+	else if (angle == float(M_PI_2 * 5 / 3) || angle == float(M_PI_2 * 7 / 3)) { //150,210
+		return -float(sqrt(3) / 2);
 	}
 	angle *= (float)M_PI_2;
 	return cosf(angle);
@@ -936,6 +965,41 @@ void vfpu_sincos_single(float angle, float &sine, float &cosine) {
 	} else if (angle == 3.0f) {
 		sine = -1.0f;
 		cosine = 0.0f;
+	} else if (angle == float(M_PI_2 / 3)) { //30
+		sine = 0.5f;
+		cosine = float(sqrt(3) / 2);
+	} else if (angle == float(M_PI_2 / 2)) { //45
+		sine = float(sqrt(2) / 2);
+		cosine = float(sqrt(2) / 2);
+	} else if (angle == float(PI / 3)) { //60
+		sine = float(sqrt(3) / 2);
+		cosine = 0.5f;	
+	}
+	else if (angle == float(M_PI_2 / 2)) { //135
+		sine = float(sqrt(2) / 2);
+		cosine = -0.5f;
+	} else if (angle == float(M_PI_2 * 5 / 3)) { //150
+		sine = 0.5f;
+		cosine = -float(sqrt(3) / 2);
+	} else if (angle == float(M_PI_2 * 7 / 3)) { //210
+		sine = -0.5f;
+		cosine = -float(sqrt(3) / 2);
+	} else if (angle == float(M_PI_2 * 5 / 2)) { //225
+		sine = -float(sqrt(2) / 2);
+		cosine = -float(sqrt(2) / 2);
+	}
+	else if (angle == float(PI * 4 / 3)) { //240
+		sine = -float(sqrt(3) / 2);
+		cosine = -0.5f;
+	} else if (angle == float(PI * 5 / 3)) { //300
+		sine = -float(sqrt(3) / 2);
+		cosine = 0.5f;
+	} else if (angle == float(M_PI_2 * 7 / 2)) { //315
+		sine = -float(sqrt(2) / 2);
+		cosine = float(sqrt(2) / 2);
+	} else if (angle == float(M_PI_2 * 11 / 3)) { //330
+		sine = M_PI_2 * 11 / 3;
+		cosine = float(sqrt(3) / 2);
 	} else {
 		angle *= (float)M_PI_2;
 #if defined(__linux__)
