@@ -1796,23 +1796,29 @@ static u32 sceMpegChangeGetAuMode(u32 mpeg, int streamUid, int mode)
 		case MPEG_AVC_STREAM:
 			if (mode == MPEG_AU_MODE_DECODE) {
 				ctx->ignoreAvc = false;
+				Memory::Write_U32(Memory::Read_U32(streamUid) & ~0x2 , streamUid + 48);
 			} else if (mode == MPEG_AU_MODE_SKIP) {
 				ctx->ignoreAvc = true;
+				Memory::Write_U32(Memory::Read_U32(streamUid) | 0x2, streamUid + 48);
 			}
 			break;
 		case MPEG_AUDIO_STREAM:
 		case MPEG_ATRAC_STREAM:
 			if (mode == MPEG_AU_MODE_DECODE) {
 				ctx->ignoreAtrac = false;
+				Memory::Write_U32(Memory::Read_U32(streamUid) & ~0x2, streamUid + 48);
 			} else if (mode == MPEG_AU_MODE_SKIP) {
 				ctx->ignoreAtrac = true;
+				Memory::Write_U32(Memory::Read_U32(streamUid) | 0x2, streamUid + 48);
 			}
 			break;
 		case MPEG_PCM_STREAM:
 			if (mode == MPEG_AU_MODE_DECODE) {
 				ctx->ignorePcm = false;
+				Memory::Write_U32(Memory::Read_U32(streamUid) & ~0x2, streamUid + 48);
 			} else if (mode == MPEG_AU_MODE_SKIP) {
 				ctx->ignorePcm = true;
+				Memory::Write_U32(Memory::Read_U32(streamUid) | 0x2, streamUid + 48);
 			}
 			break;
 		default:
