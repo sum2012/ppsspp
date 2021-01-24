@@ -40,6 +40,7 @@
 #include "UI/MiscScreens.h"
 #include "UI/MainScreen.h"
 #include "UI/BackgroundAudio.h"
+#include "ext/armips/Util/CRC.h"
 
 GameScreen::GameScreen(const std::string &gamePath) : UIDialogScreenWithGameBackground(gamePath) {
 	g_BackgroundAudio.SetGame(gamePath);
@@ -143,6 +144,7 @@ void GameScreen::CreateViews() {
 	btnSetBackground_ = rightColumnItems->Add(new Choice(ga->T("Use UI background")));
 	btnSetBackground_->OnClick.Handle(this, &GameScreen::OnSetBackground);
 	btnSetBackground_->SetVisibility(V_GONE);
+	rightColumnItems->Add(AddOtherChoice(new Choice(pa->T("CRC32"))))->OnClick.Handle(this, &GameScreen::OnDoCRC32);
 }
 
 UI::Choice *GameScreen::AddOtherChoice(UI::Choice *choice) {
@@ -262,6 +264,17 @@ UI::EventReturn GameScreen::OnShowInFolder(UI::EventParams &e) {
 
 UI::EventReturn GameScreen::OnCwCheat(UI::EventParams &e) {
 	screenManager()->push(new CwCheatScreen(gamePath_));
+	return UI::EVENT_DONE;
+}
+
+UI::EventReturn GameScreen::OnDoCRC32(UI::EventParams& e) {
+	Draw::DrawContext* thin3d = screenManager()->getDrawContext();
+	std::shared_ptr<GameInfo> info = g_gameInfoCache->GetInfo(thin3d, gamePath_, GAMEINFO_WANTBG | GAMEINFO_WANTSIZE);
+	auto chrs = gamePath_.c_str(); // get constant char* from string
+	auto str1 = std::string{ chrs }; // make string from char*
+	auto uchrs = reinterpret_cast<unsigned char*>(const_cast<char*>(chrs));
+	int Crctemp = getCrc32(uchrs, info->gameSize);
+	host->NotifyUserMessage(std::to_string(Crctemp),6.0f);
 	return UI::EVENT_DONE;
 }
 

@@ -60,6 +60,7 @@ private:
 	UI::EventReturn OnDeleteConfig(UI::EventParams &e);
 	UI::EventReturn OnCwCheat(UI::EventParams &e);
 	UI::EventReturn OnSetBackground(UI::EventParams &e);
+	UI::EventReturn OnDoCRC32(UI::EventParams& e);
 
 	// As we load metadata in the background, we need to be able to update these after the fact.
 	UI::TextView *tvTitle_;
