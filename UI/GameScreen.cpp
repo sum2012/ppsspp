@@ -49,8 +49,25 @@ GameScreen::GameScreen(const std::string &gamePath) : UIDialogScreenWithGameBack
 GameScreen::~GameScreen() {
 }
 
+template <typename I> std::string int2hexstr(I w, size_t hex_len = sizeof(I) << 1) {
+	static const char* digits = "0123456789ABCDEF";
+	std::string rc(hex_len, '0');
+	for (size_t i = 0, j = (hex_len - 1) * 4; i < hex_len; ++i, j -= 4)
+		rc[i] = digits[(w >> j) & 0x0f];
+	return rc;
+}
+
 void GameScreen::update() {
-	Reporting::HasCRC(gamePath_);
+	UIScreen::update();
+
+	// Has the user requested a CRC32?
+	if (CRC32string == "...") {
+		// Wait until the CRC32 is ready.  It might take time on some devices.
+		if (Reporting::HasCRC(gamePath_)) {
+			uint32_t crcvalue = Reporting::RetrieveCRC(gamePath_);
+			CRC32string = int2hexstr(crcvalue);
+		}
+	}
 }
 
 void GameScreen::CreateViews() {
@@ -271,18 +288,8 @@ UI::EventReturn GameScreen::OnCwCheat(UI::EventParams &e) {
 	return UI::EVENT_DONE;
 }
 
-template <typename I> std::string int2hexstr(I w, size_t hex_len = sizeof(I) << 1) {
-	static const char* digits = "0123456789ABCDEF";
-	std::string rc(hex_len, '0');
-	for (size_t i = 0, j = (hex_len - 1) * 4; i < hex_len; ++i, j -= 4)
-		rc[i] = digits[(w >> j) & 0x0f];
-	return rc;
-}
-
 UI::EventReturn GameScreen::OnDoCRC32(UI::EventParams& e) {
-	CRC32string = "doing";
-	uint32_t crcvalue = Reporting::RetrieveCRC(gamePath_);
-	CRC32string = int2hexstr(crcvalue);
+	CRC32string = "...";
 	return UI::EVENT_DONE;
 }
 
