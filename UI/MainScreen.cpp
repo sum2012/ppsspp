@@ -45,7 +45,7 @@
 #include "Core/ELF/ParamSFO.h"
 #include "Core/Util/GameManager.h"
 
-#include "UI/BackgroundAudio.h"
+//#include "UI/BackgroundAudio.h"
 #include "UI/EmuScreen.h"
 #include "UI/MainScreen.h"
 #include "UI/GameScreen.h"
@@ -964,12 +964,12 @@ UI::EventReturn GameBrowser::OnHomebrewStore(UI::EventParams &e) {
 
 MainScreen::MainScreen() {
 	System_SendMessage("event", "mainscreen");
-	g_BackgroundAudio.SetGame(Path());
+	//g_BackgroundAudio.SetGame(Path());
 	lastVertical_ = UseVerticalLayout();
 }
 
 MainScreen::~MainScreen() {
-	g_BackgroundAudio.SetGame(Path());
+	//g_BackgroundAudio.SetGame(Path());
 }
 
 void MainScreen::CreateViews() {
@@ -1134,17 +1134,16 @@ void MainScreen::CreateViews() {
 	if (System_GetPropertyBool(SYSPROP_HAS_FILE_BROWSER)) {
 		rightColumnItems->Add(new Choice(mm->T("Load", "Load...")))->OnClick.Handle(this, &MainScreen::OnLoadFile);
 	}
-	rightColumnItems->Add(new Choice(mm->T("Game Settings", "Settings")))->OnClick.Handle(this, &MainScreen::OnGameSettings);
-	rightColumnItems->Add(new Choice(mm->T("Credits")))->OnClick.Handle(this, &MainScreen::OnCredits);
-	rightColumnItems->Add(new Choice(mm->T("www.ppsspp.org")))->OnClick.Handle(this, &MainScreen::OnPPSSPPOrg);
-#ifndef OPENXR
-	if (!System_GetPropertyBool(SYSPROP_APP_GOLD)) {
-		Choice *gold = rightColumnItems->Add(new Choice(mm->T("Buy PPSSPP Gold")));
-		gold->OnClick.Handle(this, &MainScreen::OnSupport);
-		gold->SetIcon(ImageID("I_ICONGOLD"), 0.5f);
-	}
-#endif
-
+	//rightColumnItems->Add(new Choice(mm->T("Game Settings", "Settings")))->OnClick.Handle(this, &MainScreen::OnGameSettings);
+	//rightColumnItems->Add(new Choice(mm->T("Credits")))->OnClick.Handle(this, &MainScreen::OnCredits);
+	//rightColumnItems->Add(new Choice(mm->T("www.ppsspp.org")))->OnClick.Handle(this, &MainScreen::OnPPSSPPOrg);
+	//if (!System_GetPropertyBool(SYSPROP_APP_GOLD)) {
+		//Choice *gold = rightColumnItems->Add(new Choice(mm->T("Buy PPSSPP Gold")));
+		//gold->OnClick.Handle(this, &MainScreen::OnSupport);
+		//gold->SetIcon(ImageID("I_ICONGOLD"), 0.5f);
+	//}
+	auto dev = GetI18NCategory("Developer");
+	rightColumnItems->Add(new Choice(dev->T("Language", "Language")))->OnClick.Handle(this, &MainScreen::OnLanguage);
 #if !PPSSPP_PLATFORM(UWP)
 	// Having an exit button is against UWP guidelines.
 	rightColumnItems->Add(new Spacer(25.0));
@@ -1168,10 +1167,10 @@ void MainScreen::CreateViews() {
 	} else if (tabHolder_->GetVisibility() != V_GONE) {
 		root_->SetDefaultFocusView(tabHolder_);
 	}
-
-	auto u = GetI18NCategory("Upgrade");
+	//auto u = GetI18NCategory("Upgrade");
 
 	upgradeBar_ = 0;
+	/*
 	if (!g_Config.upgradeMessage.empty()) {
 		upgradeBar_ = new LinearLayout(ORIENT_HORIZONTAL, new LinearLayoutParams(FILL_PARENT, WRAP_CONTENT));
 
@@ -1186,7 +1185,7 @@ void MainScreen::CreateViews() {
 		upgradeBar_->Add(new Button(u->T("Details"), new LinearLayoutParams(buttonMargins)))->OnClick.Handle(this, &MainScreen::OnDownloadUpgrade);
 #endif
 		upgradeBar_->Add(new Button(u->T("Dismiss"), new LinearLayoutParams(buttonMargins)))->OnClick.Handle(this, &MainScreen::OnDismissUpgrade);
-
+		
 		// Slip in under root_
 		LinearLayout *newRoot = new LinearLayout(ORIENT_VERTICAL);
 		newRoot->Add(root_);
@@ -1194,6 +1193,26 @@ void MainScreen::CreateViews() {
 		root_->ReplaceLayoutParams(new LinearLayoutParams(1.0));
 		root_ = newRoot;
 	}
+	*/
+}
+
+UI::EventReturn MainScreen::OnLanguage(UI::EventParams& e) {
+	auto dev = GetI18NCategory("Developer");
+	auto langScreen = new NewLanguageScreen(dev->T("Language"));
+	langScreen->OnChoice.Handle(this, &MainScreen::OnLanguageChange);
+	if (e.v)
+		langScreen->SetPopupOrigin(e.v);
+	screenManager()->push(langScreen);
+	return UI::EVENT_DONE;
+}
+
+UI::EventReturn MainScreen::OnLanguageChange(UI::EventParams& e) {
+	screenManager()->RecreateAllViews();
+
+	if (host) {
+		host->UpdateUI();
+	}
+	return UI::EVENT_DONE;
 }
 
 UI::EventReturn MainScreen::OnAllowStorage(UI::EventParams &e) {
@@ -1231,11 +1250,13 @@ void MainScreen::sendMessage(const char *message, const char *value) {
 
 	if (screenManager()->topScreen() == this) {
 		if (!strcmp(message, "boot")) {
-			LaunchFile(screenManager(), Path(std::string(value)));
+			//LaunchFile(screenManager(), Path(std::string(value)));
+			screenManager()->push(new GameScreen(Path(std::string(value))));
 		}
 		if (!strcmp(message, "browse_fileSelect")) {
 			INFO_LOG(SYSTEM, "Attempting to launch: '%s'", value);
-			LaunchFile(screenManager(), Path(std::string(value)));
+			//LaunchFile(screenManager(), Path(std::string(value)));
+			screenManager()->push(new GameScreen(Path(std::string(value))));
 		}
 		if (!strcmp(message, "browse_folderSelect")) {
 			std::string filename = value;
@@ -1349,8 +1370,8 @@ UI::EventReturn MainScreen::OnGameSelected(UI::EventParams &e) {
 
 	// Restore focus if it was highlighted (e.g. by gamepad.)
 	restoreFocusGamePath_ = highlightedGamePath_;
-	g_BackgroundAudio.SetGame(path);
-	lockBackgroundAudio_ = true;
+	//g_BackgroundAudio.SetGame(path);
+	//lockBackgroundAudio_ = true;
 	screenManager()->push(new GameScreen(path));
 	return UI::EVENT_DONE;
 }
@@ -1376,7 +1397,7 @@ UI::EventReturn MainScreen::OnGameHighlight(UI::EventParams &e) {
 	}
 
 	if ((!highlightedGamePath_.empty() || e.a == FF_LOSTFOCUS) && !lockBackgroundAudio_) {
-		g_BackgroundAudio.SetGame(highlightedGamePath_);
+	//	g_BackgroundAudio.SetGame(highlightedGamePath_);
 	}
 
 	lockBackgroundAudio_ = false;
@@ -1386,7 +1407,8 @@ UI::EventReturn MainScreen::OnGameHighlight(UI::EventParams &e) {
 UI::EventReturn MainScreen::OnGameSelectedInstant(UI::EventParams &e) {
 	g_Config.Save("MainScreen::OnGameSelectedInstant");
 	ScreenManager *screen = screenManager();
-	LaunchFile(screen, Path(e.s));
+	screenManager()->push(new GameScreen(Path(e.s)));
+	//LaunchFile(screen, Path(e.s));
 	return UI::EVENT_DONE;
 }
 
@@ -1453,7 +1475,7 @@ void MainScreen::dialogFinished(const Screen *dialog, DialogResult result) {
 			restoreFocusGamePath_.clear();
 		} else {
 			// Not refocusing, so we need to stop the audio.
-			g_BackgroundAudio.SetGame(Path());
+		//	g_BackgroundAudio.SetGame(Path());
 		}
 	}
 }

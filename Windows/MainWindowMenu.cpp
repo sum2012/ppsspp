@@ -23,6 +23,7 @@
 #include "Common/GPU/Vulkan/VulkanLoader.h"
 #include "Common/StringUtils.h"
 #if PPSSPP_API(ANY_GL)
+#include "GPU/GLES/TextureScalerGLES.h"
 #include "GPU/GLES/TextureCacheGLES.h"
 #include "GPU/GLES/FramebufferManagerGLES.h"
 #endif
@@ -371,7 +372,7 @@ namespace MainWindow {
 	}
 
 	void BrowseAndBoot(std::string defaultPath, bool browseDirectory) {
-		static std::wstring filter = L"All supported file types (*.iso *.cso *.pbp *.elf *.prx *.zip *.ppdmp)|*.pbp;*.elf;*.iso;*.cso;*.prx;*.zip;*.ppdmp|PSP ROMs (*.iso *.cso *.pbp *.elf *.prx)|*.pbp;*.elf;*.iso;*.cso;*.prx|Homebrew/Demos installers (*.zip)|*.zip|All files (*.*)|*.*||";
+		static std::wstring filter = L"All files (*.*)|*.*||";
 		for (int i = 0; i < (int)filter.length(); i++) {
 			if (filter[i] == '|')
 				filter[i] = '\0';
