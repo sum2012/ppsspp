@@ -48,7 +48,8 @@ const static float FONT_SCALE = 0.55f;
 // These are rough, it seems to take at least 100ms or so to init, and shutdown depends on threads.
 // Some games seem to required slightly longer delays to work, so we try 200ms as a compromise.
 const static int SAVEDATA_INIT_DELAY_US = 200000;
-const static int SAVEDATA_SHUTDOWN_DELAY_US = 2000;
+static int SAVEDATA_SHUTDOWN_DELAY_US = 2000;
+const static int SAVEDATA_ERROR_DELAY_US = 2000;
 
 // These are the only sizes which are allowed.
 // TODO: We should test what the different behavior is for each.
@@ -234,8 +235,42 @@ int PSPSaveDialog::Init(int paramAddr)
 	}
 
 	if (retval < 0) {
-		ChangeStatusShutdown(SAVEDATA_SHUTDOWN_DELAY_US);
+		ChangeStatusShutdown(SAVEDATA_ERROR_DELAY_US);
 	} else {
+		switch ((SceUtilitySavedataType)(u32)param.GetPspParam()->mode) {
+			SCE_UTILITY_SAVEDATA_TYPE_LOAD:
+			SCE_UTILITY_SAVEDATA_TYPE_SAVE:
+			SCE_UTILITY_SAVEDATA_TYPE_LISTLOAD:
+			SCE_UTILITY_SAVEDATA_TYPE_LISTSAVE:
+			SCE_UTILITY_SAVEDATA_TYPE_LISTDELETE:
+			SCE_UTILITY_SAVEDATA_TYPE_LISTALLDELETE:
+			SCE_UTILITY_SAVEDATA_TYPE_DELETE:
+			// has dialog
+				SAVEDATA_SHUTDOWN_DELAY_US = 50000;
+				break;
+			SCE_UTILITY_SAVEDATA_TYPE_AUTOLOAD:
+			SCE_UTILITY_SAVEDATA_TYPE_AUTOSAVE:				
+			SCE_UTILITY_SAVEDATA_TYPE_SIZES:
+			SCE_UTILITY_SAVEDATA_TYPE_AUTODELETE:
+			SCE_UTILITY_SAVEDATA_TYPE_LIST:
+			SCE_UTILITY_SAVEDATA_TYPE_FILES:
+			SCE_UTILITY_SAVEDATA_TYPE_MAKEDATASECURE:
+			SCE_UTILITY_SAVEDATA_TYPE_MAKEDATA:
+			SCE_UTILITY_SAVEDATA_TYPE_READDATASECURE:
+			SCE_UTILITY_SAVEDATA_TYPE_READDATA:
+			SCE_UTILITY_SAVEDATA_TYPE_WRITEDATASECURE:
+			SCE_UTILITY_SAVEDATA_TYPE_WRITEDATA:
+			SCE_UTILITY_SAVEDATA_TYPE_ERASESECURE:
+			SCE_UTILITY_SAVEDATA_TYPE_ERASE:
+			SCE_UTILITY_SAVEDATA_TYPE_DELETEDATA:
+			SCE_UTILITY_SAVEDATA_TYPE_GETSIZE:
+			// no dialog
+				SAVEDATA_SHUTDOWN_DELAY_US = 2000;
+				break;
+			defualt:
+				SAVEDATA_SHUTDOWN_DELAY_US = 2000;
+				break;
+		}
 		ChangeStatusInit(SAVEDATA_INIT_DELAY_US);
 	}
 
@@ -597,7 +632,7 @@ int PSPSaveDialog::Update(int animSpeed)
 		return SCE_ERROR_UTILITY_INVALID_STATUS;
 
 	if (!param.GetPspParam()) {
-		ChangeStatusShutdown(SAVEDATA_SHUTDOWN_DELAY_US);
+		ChangeStatusShutdown(SAVEDATA_ERROR_DELAY_US);
 		return 0;
 	}
 
