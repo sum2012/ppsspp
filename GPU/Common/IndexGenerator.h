@@ -27,6 +27,7 @@ public:
 	void Setup(u16 *indexptr);
 	void Reset() {
 		this->inds_ = indsBase_;
+		count_ = 0;
 	}
 
 	static bool PrimCompatible(int prim1, int prim2) {
@@ -51,7 +52,7 @@ public:
 	void TranslatePrim(int prim, int numInds, const u32_le *inds, int indexOffset, bool clockwise);
 
 	// This is really the number of generated indices, or 3x the number of triangles.
-	int VertexCount() const { return inds_ - indsBase_; }
+	int VertexCount() const { return count_; }
 
 private:
 	// Points (why index these? code simplicity)
@@ -86,6 +87,7 @@ private:
 
 	u16 *indsBase_;
 	u16 *inds_;
+	int count_;
 
 	static const u8 indexedPrimitiveType[7];
 };

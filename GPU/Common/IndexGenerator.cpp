@@ -67,6 +67,7 @@ void IndexGenerator::AddPoints(int numVerts, int indexOffset) {
 	for (int i = 0; i < numVerts; i++)
 		*outInds++ = indexOffset + i;
 	inds_ = outInds;
+	count_ += numVerts;
 }
 
 void IndexGenerator::AddList(int numVerts, int indexOffset, bool clockwise) {
@@ -79,6 +80,7 @@ void IndexGenerator::AddList(int numVerts, int indexOffset, bool clockwise) {
 		*outInds++ = indexOffset + i + v2;
 	}
 	inds_ = outInds;
+	count_ += numVerts;
 }
 
 alignas(16) static const u16 offsets_clockwise[24] = {
@@ -193,6 +195,8 @@ void IndexGenerator::AddStrip(int numVerts, int indexOffset, bool clockwise) {
 	}
 	inds_ = outInds;
 #endif
+	if (numTris > 0)
+		count_ += numTris * 3;
 }
 
 void IndexGenerator::AddFan(int numVerts, int indexOffset, bool clockwise) {
@@ -206,6 +210,7 @@ void IndexGenerator::AddFan(int numVerts, int indexOffset, bool clockwise) {
 		*outInds++ = indexOffset + i + v2;
 	}
 	inds_ = outInds;
+	count_ += numTris * 3;
 }
 
 //Lines
@@ -216,6 +221,7 @@ void IndexGenerator::AddLineList(int numVerts, int indexOffset) {
 		*outInds++ = indexOffset + i + 1;
 	}
 	inds_ = outInds;
+	count_ += numVerts;
 }
 
 void IndexGenerator::AddLineStrip(int numVerts, int indexOffset) {
@@ -226,6 +232,7 @@ void IndexGenerator::AddLineStrip(int numVerts, int indexOffset) {
 		*outInds++ = indexOffset + i + 1;
 	}
 	inds_ = outInds;
+	count_ += numLines * 2;
 }
 
 void IndexGenerator::AddRectangles(int numVerts, int indexOffset) {
@@ -237,6 +244,7 @@ void IndexGenerator::AddRectangles(int numVerts, int indexOffset) {
 		*outInds++ = indexOffset + i + 1;
 	}
 	inds_ = outInds;
+	count_ += numVerts;
 }
 
 template <class ITypeLE>
@@ -245,6 +253,7 @@ void IndexGenerator::TranslatePoints(int numInds, const ITypeLE *inds, int index
 	for (int i = 0; i < numInds; i++)
 		*outInds++ = indexOffset + inds[i];
 	inds_ = outInds;
+	count_ += numInds;
 }
 
 template <class ITypeLE>
@@ -256,6 +265,7 @@ void IndexGenerator::TranslateLineList(int numInds, const ITypeLE *inds, int ind
 		*outInds++ = indexOffset + inds[i + 1];
 	}
 	inds_ = outInds;
+	count_ += numInds;
 }
 
 template <class ITypeLE>
@@ -267,6 +277,7 @@ void IndexGenerator::TranslateLineStrip(int numInds, const ITypeLE *inds, int in
 		*outInds++ = indexOffset + inds[i + 1];
 	}
 	inds_ = outInds;
+	count_ += numInds;
 }
 
 template <class ITypeLE>
@@ -289,6 +300,7 @@ void IndexGenerator::TranslateList(int numInds, const ITypeLE *inds, int indexOf
 			*outInds++ = indexOffset + inds[i + v2];
 		}
 		inds_ = outInds;
+		count_ += numInds;
 	}
 }
 
@@ -304,6 +316,7 @@ void IndexGenerator::TranslateStrip(int numInds, const ITypeLE *inds, int indexO
 		*outInds++ = indexOffset + inds[i + wind];
 	}
 	inds_ = outInds;
+	count_ += numTris * 3;
 }
 
 template <class ITypeLE>
@@ -319,6 +332,7 @@ void IndexGenerator::TranslateFan(int numInds, const ITypeLE *inds, int indexOff
 		*outInds++ = indexOffset + inds[i + v2];
 	}
 	inds_ = outInds;
+	count_ += numTris * 3;
 }
 
 template <class ITypeLE>
@@ -331,6 +345,7 @@ inline void IndexGenerator::TranslateRectangles(int numInds, const ITypeLE *inds
 		*outInds++ = indexOffset + inds[i+1];
 	}
 	inds_ = outInds;
+	count_ += numInds;
 }
 
 // Could template this too, but would have to define in header.
