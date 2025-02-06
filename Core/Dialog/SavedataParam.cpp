@@ -424,6 +424,17 @@ int SavedataParam::Save(SceUtilitySavedataParam* param, const std::string &saveD
 		ERROR_LOG_REPORT(Log::sceUtility, "Savedata buffer overflow: %d / %d", param->dataSize, param->dataBufSize);
 		return SCE_UTILITY_SAVEDATA_ERROR_RW_BAD_PARAMS;
 	}
+
+	if (param->mode == SCE_UTILITY_SAVEDATA_TYPE_AUTOSAVE) {
+		int firstEmptySave = GetFirstEmptySave();
+		if (firstEmptySave >= 0) {
+			strncpy(param->saveName, saveDataList[firstEmptySave].saveName.c_str(), sizeof(param->saveName));
+		}
+		else {
+			return SCE_UTILITY_SAVEDATA_ERROR_SAVE_NO_DATA;
+		}
+	}
+
 	auto validateSize = [](const PspUtilitySavedataFileData &data) {
 		if (data.buf.IsValid() && data.bufSize < data.size) {
 			ERROR_LOG_REPORT(Log::sceUtility, "Savedata subdata buffer overflow: %d / %d", data.size, data.bufSize);
