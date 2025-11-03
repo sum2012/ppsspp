@@ -25,6 +25,7 @@
 #include "Core/HLE/sceMpeg.h"
 #include "Core/HLE/sceKernelModule.h"
 #include "Core/HLE/sceKernelThread.h"
+#include "Core/HLE/sceKernelMemory.h"
 #include "Core/HLE/HLE.h"
 #include "Core/HLE/FunctionWrappers.h"
 #include "Core/HLE/ErrorCodes.h"
@@ -172,6 +173,7 @@ std::map<u32, MpegContext *> g_mpegCtxs;
 static u32 sceMpegAvcResourceAddr = 0;
 static u32 sceMpegAvcResourceDataAddr = 0;
 static int sceMpegAvcResourceFlags = 0;
+static int sceMpegAvcResourceFplUid = 0; // FPL UID for resource management
 
 MpegContext::MpegContext() {
 	memcpy(mpegheader, defaultMpegheader, 2048);
@@ -1981,7 +1983,29 @@ static u32 sceMpegAvcResourceGetAvcDecTopAddr(u32 mpeg) {
 }
 
 static u32 sceMpegAvcResourceFinish(u32 mpeg) {
-	return hleLogInfo(Log::Mpeg, 0, "UNIMPL");
+	if ((sceMpegAvcResourceFlags & MPEG_AVC_RESOURCE_FLAG) == 0) {
+		return hleLogError(Log::Mpeg, SCE_MPEG_ERROR_UNKNOWN_STREAM_ID);
+	}
+
+	// // Free the allocated memory from FPL using local stub API: sceKernelFreeFpl(fplUid, addr)
+	int result = sceKernelFreeFpl(sceMpegAvcResourceFplUid, sceMpegAvcResourceDataAddr);
+	if (result < 0) {
+		return hleLogError(Log::Mpeg, result);
+	}
+
+	// // Delete the FPL using local stub API: sceKernelDeleteFpl(fplUid)
+	result = sceKernelDeleteFpl(sceMpegAvcResourceFplUid);
+	if (result < 0) {
+		return hleLogError(Log::Mpeg, result);
+	}
+
+	// Reset variables
+	sceMpegAvcResourceAddr = 0;
+	sceMpegAvcResourceDataAddr = 0;
+	sceMpegAvcResourceFplUid = 0;
+	sceMpegAvcResourceFlags &= ~MPEG_AVC_RESOURCE_FLAG;
+
+	return hleLogDebug(Log::Mpeg, result);
 }
 
 static u32 sceMpegAvcResourceGetAvcEsBuf(u32 mpeg) {
@@ -2001,11 +2025,25 @@ static u32 sceMpegAvcResourceInit(u32 mpeg) {
 		return hleLogError(Log::Mpeg, SCE_MPEG_ERROR_ALREADY_INIT);
 	}
 
-	// Allocate memory for the AVC resource
-	// In a real implementation, this would use sceKernelCreateFpl and sceKernelAllocateFpl
-	// For PPSSPP, we'll simulate the allocation
-	sceMpegAvcResourceAddr = 0x10000000; // Simulated base address
-	sceMpegAvcResourceDataAddr = sceMpegAvcResourceAddr + 8; // Offset for data
+	// Create FPL (Fixed Partition List) for AVC resource allocation
+	// Following JPCSP logic: use USER_PARTITION_ID (1), no attributes (0), block size 0x20000, 1 block, no options
+	sceMpegAvcResourceFplUid = sceKernelCreateFpl("SceMpegAvcResource", 1, 0, MPEG_AVC_RESOURCE_SIZE, 1, 0);
+	if (sceMpegAvcResourceFplUid < 0) {
+		return hleLogError(Log::Mpeg, sceMpegAvcResourceFplUid);
+	}
+
+	// Allocate memory from the FPL using proper API with output address pointer
+	// Use the global variable address as the storage location for the result
+	int result = sceKernelAllocateFpl(sceMpegAvcResourceFplUid, (u32)&sceMpegAvcResourceDataAddr, 0);
+	if (result < 0) {
+		sceKernelDeleteFpl(sceMpegAvcResourceFplUid);
+		sceMpegAvcResourceFplUid = 0;
+		return hleLogError(Log::Mpeg, result);
+	}
+
+	// Set the base address
+	sceMpegAvcResourceAddr = sceMpegAvcResourceDataAddr;
+
 	sceMpegAvcResourceFlags |= MPEG_AVC_RESOURCE_FLAG;
 
 	return hleLogDebug(Log::Mpeg, 0);
