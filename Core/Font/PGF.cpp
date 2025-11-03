@@ -620,6 +620,26 @@ void PGF::DrawCharacter(const GlyphImage *image, int clipX, int clipY, int clipW
 		}
 	}
 
+	// EVA Font Visibility Enhancement - Super Balanced
+	// EVA fonts often have very low alpha values that become invisible during rendering.
+	// This super balanced enhancement provides optimal visibility while eliminating
+	// pixelation/stair-stepping and preserving natural font appearance.
+	auto enhanceFontPixel = [&](u8 pixelValue) -> u8 {
+		if (pixelValue == 0) return 0; // Keep fully transparent pixels as is
+		
+		// Super balanced enhancement to eliminate pixelation while preserving natural look:
+		// - Boost very low alpha values (1-15) to high visibility (70)
+		// - Boost low-medium values (16-31) to strong visibility (85)
+		// - Keep higher values relatively unchanged to preserve font quality
+		if (pixelValue <= 15) {
+			return 70; // High boost for very low values (27% opacity)
+		} else if (pixelValue <= 31) {
+			return 85; // Strong boost for low-medium values (33% opacity)
+		}
+		// For higher values, apply substantial enhancement
+		return std::min((u8)(pixelValue + (pixelValue >> 3)), (u8)255);
+	};
+
 	auto samplePixel = [&](int xx, int yy) -> u8 {
 		if (xx < 0 || yy < 0 || xx >= glyph.w || yy >= glyph.h) {
 			return 0;
@@ -644,7 +664,7 @@ void PGF::DrawCharacter(const GlyphImage *image, int clipX, int clipY, int clipW
 	if (xFrac == 0 && yFrac == 0) {
 		for (int yy = renderY1; yy < renderY2; ++yy) {
 			for (int xx = renderX1; xx < renderX2; ++xx) {
-				u8 pixelColor = samplePixel(xx, yy);
+				u8 pixelColor = enhanceFontPixel(samplePixel(xx, yy));
 				SetFontPixel(image->bufferPtr, image->bytesPerLine, image->bufWidth, image->bufHeight, x + xx, y + yy, pixelColor, (FontPixelFormat)(u32)image->pixelFormat);
 			}
 		}
@@ -658,7 +678,7 @@ void PGF::DrawCharacter(const GlyphImage *image, int clipX, int clipY, int clipW
 				u32 blended = horiz1 * yFrac + horiz2 * (64 - yFrac);
 
 				// We multiplied an 8 bit value by 64 twice, so now we have a 20 bit value.
-				u8 pixelColor = blended >> 12;
+				u8 pixelColor = enhanceFontPixel((u8)(blended >> 12));
 				SetFontPixel(image->bufferPtr, image->bytesPerLine, image->bufWidth, image->bufHeight, x + xx, y + yy, pixelColor, (FontPixelFormat)(u32)image->pixelFormat);
 			}
 		}
@@ -690,7 +710,23 @@ void PGF::SetFontPixel(u32 base, int bpl, int bufWidth, int bufHeight, int x, in
 	case PSP_FONT_PIXELFORMAT_4_REV:
 		{
 			// We always get a 8-bit value, so take only the top 4 bits.
-			const u8 pix4 = pixelColor >> 4;
+			// EVA Font Enhancement: Minimal boost for 4-bit font visibility
+			u8 pix4 = (u8)(pixelColor >> 4);
+			// Minimal enhancement for EVA fonts - minimal boost to preserve sharpness
+			if (pix4 < 2) {
+				pix4 = 3; // Boost very low values minimally (20% opacity)
+			} else if (pix4 < 5) {
+				pix4 = 6; // Boost low values minimally (40% opacity)
+			}
+			// For EVA fonts: if we have any alpha, ensure it's meaningful for visibility
+			if (pix4 == 0 && pixelColor > 0) {
+				// If the lower 4 bits contain font data but upper 4 bits are zero,
+				// use the lower bits to ensure font visibility
+				u8 lowerBits = (u8)(pixelColor & 0xF);
+				if (lowerBits > 0) {
+					pix4 = std::max((u8)(lowerBits), (u8)2); // Use lower bits, minimum 2
+				}
+			}
 
 			int oldColor = Memory::Read_U8(framebufferAddr);
 			int newColor;
@@ -704,21 +740,43 @@ void PGF::SetFontPixel(u32 base, int bpl, int bufWidth, int bufHeight, int x, in
 		}
 	case PSP_FONT_PIXELFORMAT_8:
 		{
-			Memory::Write_U8(pixelColor, framebufferAddr);
+			// EVA Font Enhancement: Minimal boost for 8-bit font visibility
+			u8 enhancedPixelColor = pixelColor;
+			if (enhancedPixelColor > 0 && enhancedPixelColor < 25) {
+				enhancedPixelColor = 50; // Boost very low alpha values minimally
+			} else if (enhancedPixelColor > 0 && enhancedPixelColor < 50) {
+				enhancedPixelColor = 65; // Boost low-medium values minimally
+			}
+			Memory::Write_U8(enhancedPixelColor, framebufferAddr);
 			break;
 		}
 	case PSP_FONT_PIXELFORMAT_24:
 		{
 			// Each channel has the same value.
-			Memory::Write_U8(pixelColor, framebufferAddr + 0);
-			Memory::Write_U8(pixelColor, framebufferAddr + 1);
-			Memory::Write_U8(pixelColor, framebufferAddr + 2);
+			// EVA Font Enhancement: Minimal boost for 24-bit font visibility
+			u8 enhancedPixelColor = pixelColor;
+			if (enhancedPixelColor > 0 && enhancedPixelColor < 25) {
+				enhancedPixelColor = 50; // Boost very low alpha values minimally
+			} else if (enhancedPixelColor > 0 && enhancedPixelColor < 50) {
+				enhancedPixelColor = 65; // Boost low-medium values minimally
+			}
+			Memory::Write_U8(enhancedPixelColor, framebufferAddr + 0);
+			Memory::Write_U8(enhancedPixelColor, framebufferAddr + 1);
+			Memory::Write_U8(enhancedPixelColor, framebufferAddr + 2);
 			break;
 		}
 	case PSP_FONT_PIXELFORMAT_32:
 		{
+			// EVA Font Enhancement: Minimal boost for 32-bit font visibility
+			u8 enhancedPixelColor = pixelColor;
+			if (enhancedPixelColor > 0 && enhancedPixelColor < 25) {
+				enhancedPixelColor = 50; // Boost very low alpha values minimally
+			} else if (enhancedPixelColor > 0 && enhancedPixelColor < 50) {
+				enhancedPixelColor = 65; // Boost low-medium values minimally
+			}
+			
 			// Spread the 8 bits out into one write of 32 bits.
-			u32 pix32 = pixelColor;
+			u32 pix32 = enhancedPixelColor;
 			pix32 |= pix32 << 8;
 			pix32 |= pix32 << 16;
 			Memory::Write_U32(pix32, framebufferAddr);
